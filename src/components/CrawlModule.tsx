@@ -16,7 +16,8 @@ import {
 import clsx from "clsx";
 import { useAppStore } from "@/store/appStore";
 import EngagementStats from "@/components/EngagementStats";
-import type { XHSNote, SearchFilters, SearchHistory, SearchMode } from "@/types";
+import { RECRUITMENT_DIRECTION_OPTIONS } from "@/types";
+import type { RecruitmentDirection, XHSNote, SearchFilters, SearchHistory, SearchMode } from "@/types";
 import Image from "next/image";
 import { buildOpenableNoteLink, extractXhsLinksFromText } from "@/lib/xhsLink";
 
@@ -84,6 +85,9 @@ export default function CrawlModule() {
   const [importing, setImporting] = useState(false);
   const [importSuccess, setImportSuccess] = useState("");
   const [showFilters, setShowFilters] = useState(false);
+  const [recruitmentDirectionByNoteId, setRecruitmentDirectionByNoteId] = useState<
+    Record<string, string | null>
+  >({});
 
   const activeHistory =
     searchHistories.find((history) => history.id === activeSearchHistoryId) || null;
@@ -104,6 +108,7 @@ export default function CrawlModule() {
     setCrawlResults([]);
     setActiveSearchHistoryId(null);
     setSelectedIds(new Set());
+    setRecruitmentDirectionByNoteId({});
 
     try {
       const res = await fetch("/api/xhs/search", {
@@ -187,7 +192,12 @@ export default function CrawlModule() {
   }
 
   async function handleImport() {
-    const toImport = displayResults.filter((note) => selectedIds.has(note.id));
+    const toImport = displayResults
+      .filter((note) => selectedIds.has(note.id))
+      .map((note) => ({
+        ...note,
+        recruitmentDirection: getSelectedRecruitmentDirection(note),
+      }));
     if (toImport.length === 0) return;
 
     setImporting(true);
@@ -245,6 +255,7 @@ export default function CrawlModule() {
     setError(null);
     setWarning("");
     setSelectedIds(new Set());
+    setRecruitmentDirectionByNoteId({});
     setActiveSearchHistoryId(history.id);
     setSearchMode(history.mode);
     if (history.mode === "keyword") {
@@ -256,6 +267,31 @@ export default function CrawlModule() {
 
     setCrawlKeyword("");
     setNoteLinksInput((history.noteLinks || []).join("\n"));
+  }
+
+  function getSelectedRecruitmentDirection(note: XHSNote) {
+    if (Object.prototype.hasOwnProperty.call(recruitmentDirectionByNoteId, note.id)) {
+      return recruitmentDirectionByNoteId[note.id] || "";
+    }
+
+    return note.recruitmentDirection || "";
+  }
+
+  function updateRecruitmentDirection(
+    noteId: string,
+    value: RecruitmentDirection,
+    currentValue: string
+  ) {
+    setRecruitmentDirectionByNoteId((current) => {
+      const next = { ...current };
+      if (currentValue === value) {
+        next[noteId] = null;
+        return next;
+      }
+
+      next[noteId] = value;
+      return next;
+    });
   }
 
   return (
@@ -544,7 +580,11 @@ export default function CrawlModule() {
                     key={note.id}
                     note={note}
                     selected={selectedIds.has(note.id)}
+                    recruitmentDirection={getSelectedRecruitmentDirection(note)}
                     onToggle={() => toggleSelect(note.id)}
+                    onRecruitmentDirectionChange={(value, currentValue) =>
+                      updateRecruitmentDirection(note.id, value, currentValue)
+                    }
                   />
                 ))}
               </div>
@@ -621,11 +661,15 @@ export default function CrawlModule() {
 function NoteCard({
   note,
   selected,
+  recruitmentDirection,
   onToggle,
+  onRecruitmentDirectionChange,
 }: {
   note: XHSNote;
   selected: boolean;
+  recruitmentDirection: string;
   onToggle: () => void;
+  onRecruitmentDirectionChange: (value: RecruitmentDirection, currentValue: string) => void;
 }) {
   const noteDetailLink = buildOpenableNoteLink(note.noteLink, note.id);
 
@@ -670,6 +714,34 @@ function NoteCard({
           />
         </div>
       </a>
+
+      <div className="px-2 pb-2">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] text-gray-400">招聘方向</span>
+          <div className="flex overflow-hidden rounded-md border border-gray-200 bg-gray-50">
+            {RECRUITMENT_DIRECTION_OPTIONS.map((option) => {
+              const active = recruitmentDirection === option;
+
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => onRecruitmentDirectionChange(option, recruitmentDirection)}
+                  className={clsx(
+                    "px-2 py-1 text-[11px] font-medium transition-colors",
+                    active
+                      ? "bg-red-500 text-white"
+                      : "text-gray-500 hover:bg-white hover:text-gray-700"
+                  )}
+                  title={active ? `取消${option}` : `设为${option}`}
+                >
+                  {option}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
 
       <button
         onClick={onToggle}

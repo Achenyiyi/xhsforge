@@ -6,6 +6,7 @@ const STANDALONE_HASH_PATTERN = /(^|[\s\u3000])#+(?=($|[\s\u3000]))/g;
 const LEADING_HASH_NOISE_PATTERN = /(^|\n)\s*(?:#\s*)+(?=[^\s#])/g;
 const URL_LIKE_TEXT_PATTERN =
   /^(https?:\/\/|www\.|xiaohongshu\.com\/|www\.xiaohongshu\.com\/|xhslink\.com\/|www\.xhslink\.com\/|\/explore\/)/i;
+const NOTE_ID_LIKE_TAG_PATTERN = /^[0-9a-f]{16,}$/i;
 
 function toString(value: unknown): string {
   if (value === null || value === undefined) return "";
@@ -32,6 +33,7 @@ export function normalizeTag(tag: string): string {
     .replace(/[、，,]+$/g, "")
     .trim();
 
+  if (NOTE_ID_LIKE_TAG_PATTERN.test(normalized)) return "";
   return normalized ? `#${normalized}` : "";
 }
 

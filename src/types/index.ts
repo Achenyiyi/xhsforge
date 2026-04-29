@@ -1,3 +1,6 @@
+export const RECRUITMENT_DIRECTION_OPTIONS = ["主播", "助理"] as const;
+export type RecruitmentDirection = (typeof RECRUITMENT_DIRECTION_OPTIONS)[number];
+
 // 小红书笔记基础类型
 export interface XHSNote {
   id: string;
@@ -14,6 +17,7 @@ export interface XHSNote {
   author: string;
   noteLink: string;
   coverText?: string; // 封面文案（从图片提取）
+  recruitmentDirection?: string; // 招聘方向
 }
 
 export type SearchMode = "keyword" | "links";
@@ -44,6 +48,7 @@ export interface FeishuCollectRecord {
   rewriteTags?: string[]; // 二创标签
   rewriteRemark?: string; // 二创备注
   publishPersona?: string; // 发布人设
+  recruitmentDirection?: string; // 招聘方向
   hasRewritten?: boolean; // 已二创（复选框）
   // 原始笔记内容（在飞书不存储，仅内存用）
   originalTitle?: string;
@@ -61,6 +66,7 @@ export interface RewriteEditBaseline {
   rewrittenTags: string[];
   rewriteRemark: string;
   publishPersona: string;
+  recruitmentDirection: string;
 }
 
 export interface RewriteResult {
@@ -79,6 +85,7 @@ export interface RewriteResult {
   rewrittenTags: string[];
   rewriteRemark: string;
   publishPersona: string;
+  recruitmentDirection: string;
   titleReplaceInfo: string; // 本次标题生成实际使用的替换信息
   bodyReplaceInfo: string; // 本次正文生成实际使用的替换信息
   coverReplaceInfo: string; // 本次封面文案生成实际使用的替换信息

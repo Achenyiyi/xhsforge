@@ -1,14 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RefreshCw, Sparkles, ChevronDown, ChevronUp, Check } from "lucide-react";
+import { RefreshCw, Sparkles, ChevronDown, ChevronUp, Check, Search, X } from "lucide-react";
 import clsx from "clsx";
 import { useAppStore } from "@/store/appStore";
 import EngagementStats from "@/components/EngagementStats";
 import { pickDefaultCoverTemplateSelection } from "@/lib/coverTemplates";
 import { dedupeTags, sanitizeTitle } from "@/lib/xhs";
 import { buildOpenableNoteLink } from "@/lib/xhsLink";
-import type { FeishuCollectRecord, RewriteResult } from "@/types";
+import { RECRUITMENT_DIRECTION_OPTIONS } from "@/types";
+import type { FeishuCollectRecord, RecruitmentDirection, RewriteResult } from "@/types";
 import Image from "next/image";
 
 const PAGE_SIZE = 10;
@@ -87,6 +88,7 @@ function createRewriteResult(record: FeishuCollectRecord, batchIndex: number, ba
     coverBaseImage: coverTemplateSelection.baseImage,
     rewrittenTags: inheritedTags,
     rewriteRemark: "",
+    recruitmentDirection: record.recruitmentDirection || "",
     // 发起新的二创时默认从空人设开始，避免沿用飞书里的历史选择。
     publishPersona: "",
     titleReplaceInfo: "",
@@ -99,6 +101,7 @@ function createRewriteResult(record: FeishuCollectRecord, batchIndex: number, ba
       rewrittenCoverText: "",
       rewrittenTags: inheritedTags,
       rewriteRemark: "",
+      recruitmentDirection: record.recruitmentDirection || "",
       publishPersona: "",
     },
     status: "pending",
@@ -124,13 +127,38 @@ export default function ListModule() {
   const [rewriting, setRewriting] = useState(false);
   const [batchCountMap, setBatchCountMap] = useState<Record<string, number>>({});
   const [sortState, setSortState] = useState<SortState>(DEFAULT_SORT_STATE);
+  const [titleSearchKeyword, setTitleSearchKeyword] = useState("");
+  const [recruitmentDirectionFilter, setRecruitmentDirectionFilter] = useState<
+    "" | RecruitmentDirection
+  >("");
   const initRef = useRef(false);
+  const titleSearchQuery = titleSearchKeyword.trim().toLowerCase();
+
+  const filteredRecords = useMemo(() => {
+    return collectRecords.filter((record) => {
+      if (
+        titleSearchQuery &&
+        !sanitizeTitle(record.originalTitle || "").toLowerCase().includes(titleSearchQuery)
+      ) {
+        return false;
+      }
+
+      if (
+        recruitmentDirectionFilter &&
+        (record.recruitmentDirection || "") !== recruitmentDirectionFilter
+      ) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [collectRecords, recruitmentDirectionFilter, titleSearchQuery]);
 
   const sortedRecords = useMemo(() => {
     const hasActiveSort = SORT_FIELD_OPTIONS.some(({ field }) => sortState[field].enabled);
-    if (!hasActiveSort) return collectRecords;
+    if (!hasActiveSort) return filteredRecords;
 
-    return collectRecords
+    return filteredRecords
       .map((record, index) => ({ record, index }))
       .sort((left, right) => {
         for (const { field } of SORT_FIELD_OPTIONS) {
@@ -148,7 +176,7 @@ export default function ListModule() {
         return left.index - right.index;
       })
       .map(({ record }) => record);
-  }, [collectRecords, sortState]);
+  }, [filteredRecords, sortState]);
   const totalPages = Math.max(1, Math.ceil(sortedRecords.length / PAGE_SIZE));
   const pageRecords = sortedRecords.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const pageSelectableIds = pageRecords
@@ -168,7 +196,7 @@ export default function ListModule() {
 
   useEffect(() => {
     setPage(1);
-  }, [sortState]);
+  }, [sortState, titleSearchQuery, recruitmentDirectionFilter]);
 
   useEffect(() => {
     setPage((current) => Math.min(current, totalPages));
@@ -356,6 +384,70 @@ export default function ListModule() {
                 );
               })}
             </div>
+            <div className="relative min-w-[220px] max-w-sm flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <input
+                type="search"
+                value={titleSearchKeyword}
+                onChange={(event) => setTitleSearchKeyword(event.target.value)}
+                placeholder="按标题搜索"
+                className="h-9 w-full rounded-lg border border-gray-200 bg-white pl-9 pr-9 text-sm text-gray-700 outline-none transition-colors placeholder:text-gray-400 focus:border-red-300 focus:ring-2 focus:ring-red-50"
+                spellCheck={false}
+              />
+              {titleSearchKeyword && (
+                <button
+                  type="button"
+                  onClick={() => setTitleSearchKeyword("")}
+                  className="absolute right-2 top-1/2 rounded p-1 text-gray-400 transition-colors -translate-y-1/2 hover:bg-gray-100 hover:text-gray-600"
+                  title="清空搜索"
+                  aria-label="清空标题搜索"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1">
+              <span className="text-xs font-medium text-gray-600">招聘方向</span>
+              {RECRUITMENT_DIRECTION_OPTIONS.map((option) => {
+                const active = recruitmentDirectionFilter === option;
+
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() =>
+                      setRecruitmentDirectionFilter((current) =>
+                        current === option ? "" : option
+                      )
+                    }
+                    className={clsx(
+                      "rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                      active
+                        ? "bg-red-500 text-white"
+                        : "text-gray-500 hover:bg-white hover:text-gray-700"
+                    )}
+                  >
+                    {option}
+                  </button>
+                );
+              })}
+              {recruitmentDirectionFilter && (
+                <button
+                  type="button"
+                  onClick={() => setRecruitmentDirectionFilter("")}
+                  className="rounded p-1 text-gray-400 transition-colors hover:bg-white hover:text-gray-600"
+                  title="清空招聘方向筛选"
+                  aria-label="清空招聘方向筛选"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            {(titleSearchQuery || recruitmentDirectionFilter) && (
+              <span className="text-xs text-gray-400">
+                匹配 {sortedRecords.length} / {collectRecords.length} 条
+              </span>
+            )}
             {selectedRecordIds.size > 0 && (
               <button
                 onClick={clearRecordSelection}
@@ -391,6 +483,23 @@ export default function ListModule() {
           </div>
         )}
 
+        {!loading && collectRecords.length > 0 && sortedRecords.length === 0 && !error && (
+          <div className="flex flex-col items-center justify-center h-64 text-gray-400">
+            <Search className="mb-3 h-10 w-10 opacity-30" />
+            <p className="text-sm">没有匹配的爆款笔记</p>
+            <button
+              type="button"
+              onClick={() => {
+                setTitleSearchKeyword("");
+                setRecruitmentDirectionFilter("");
+              }}
+              className="mt-3 text-sm text-red-500 hover:underline"
+            >
+              清空筛选
+            </button>
+          </div>
+        )}
+
         {!loading && pageRecords.length > 0 && (
           <div className="divide-y divide-gray-100">
             {pageRecords.map((record) => (
@@ -412,7 +521,7 @@ export default function ListModule() {
       {totalPages > 1 && (
         <div className="bg-white border-t border-gray-200 px-6 py-3 flex items-center justify-between">
           <span className="text-sm text-gray-500">
-            第 {page} / {totalPages} 页，共 {collectRecords.length} 条
+            第 {page} / {totalPages} 页，共 {sortedRecords.length} 条
           </span>
           <div className="flex items-center gap-1">
             <button
@@ -531,6 +640,11 @@ function RecordRow({
                 {record.rewriteDate && (
                   <span className="text-xs text-gray-400">
                     最近二创：{record.rewriteDate}
+                  </span>
+                )}
+                {record.recruitmentDirection && (
+                  <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-xs text-emerald-600">
+                    招聘方向：{record.recruitmentDirection}
                   </span>
                 )}
               </div>

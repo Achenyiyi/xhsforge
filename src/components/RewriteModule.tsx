@@ -44,6 +44,7 @@ import {
 import { usePromptsSettingsStore } from "@/store/promptsSettingsStore";
 import { dedupeTags, extractTagsFromText, sanitizeTitle } from "@/lib/xhs";
 import { buildOpenableNoteLink } from "@/lib/xhsLink";
+import { RECRUITMENT_DIRECTION_OPTIONS } from "@/types";
 import type { RewriteEditBaseline, RewriteResult } from "@/types";
 import Image from "next/image";
 
@@ -62,6 +63,10 @@ type RewriteUndoHistory = Partial<{
 
 type ExtractedReplaceInfoByScope = Record<ReplaceLibraryScope, string[]>;
 type PendingExtractedEntriesByScope = Record<ReplaceLibraryScope, ReplaceEntryDraft[]>;
+type BulkGeneratedEditIntent = {
+  version: number;
+  action: "open" | "save";
+};
 
 const RETRY_FIELD_LABELS: Record<RetryableRewriteField, string> = {
   coverText: "二创封面文案",
@@ -427,6 +432,7 @@ function buildRewriteSaveFingerprint(
     | "rewrittenTags"
     | "rewriteRemark"
     | "publishPersona"
+    | "recruitmentDirection"
   >
 ) {
   return JSON.stringify({
@@ -437,6 +443,7 @@ function buildRewriteSaveFingerprint(
     rewrittenTags: normalizeSavedTags(value.rewrittenTags),
     rewriteRemark: normalizeSavedText(value.rewriteRemark),
     publishPersona: normalizeSavedText(value.publishPersona),
+    recruitmentDirection: normalizeSavedText(value.recruitmentDirection),
   });
 }
 
@@ -448,6 +455,7 @@ function buildSavedSnapshotFallbackFingerprint(note: RewriteResult["originalNote
     rewrittenTags: normalizeSavedTags(note.rewriteTags),
     rewriteRemark: normalizeSavedText(note.rewriteRemark),
     publishPersona: normalizeSavedText(note.publishPersona),
+    recruitmentDirection: normalizeSavedText(note.recruitmentDirection),
   });
 }
 
@@ -459,6 +467,7 @@ function buildCurrentResultFallbackFingerprint(result: RewriteResult) {
     rewrittenTags: normalizeSavedTags(buildDisplayTags(result)),
     rewriteRemark: normalizeSavedText(result.rewriteRemark),
     publishPersona: normalizeSavedText(result.publishPersona),
+    recruitmentDirection: normalizeSavedText(result.recruitmentDirection),
   });
 }
 
@@ -471,6 +480,7 @@ function buildTrackedEditBaseline(value: RewriteEditBaseline): RewriteEditBaseli
     rewrittenTags: [...(value.rewrittenTags || [])],
     rewriteRemark: value.rewriteRemark || "",
     publishPersona: value.publishPersona || "",
+    recruitmentDirection: value.recruitmentDirection || "",
   };
 }
 
@@ -486,6 +496,7 @@ function buildCurrentTrackedEditBaseline(
     rewrittenTags: overrides.rewrittenTags ?? result.rewrittenTags,
     rewriteRemark: overrides.rewriteRemark ?? result.rewriteRemark ?? "",
     publishPersona: overrides.publishPersona ?? result.publishPersona,
+    recruitmentDirection: overrides.recruitmentDirection ?? result.recruitmentDirection,
   });
 }
 
@@ -502,12 +513,17 @@ function mergeTrackedEditBaseline(
       updates.rewriteRemark ?? result.editBaseline?.rewriteRemark ?? result.rewriteRemark ?? "",
     publishPersona:
       updates.publishPersona ?? result.editBaseline?.publishPersona ?? result.publishPersona,
+    recruitmentDirection:
+      updates.recruitmentDirection ??
+      result.editBaseline?.recruitmentDirection ??
+      result.recruitmentDirection,
   });
 }
 
 const EDITED_CATEGORY_LABELS: Record<keyof RewriteEditBaseline, string> = {
   rewrittenCover: "二创封面已编辑",
   publishPersona: "发布人设已编辑",
+  recruitmentDirection: "招聘方向已编辑",
   rewrittenTitle: "二创标题已编辑",
   rewrittenBody: "二创正文已编辑",
   rewrittenTags: "二创标签已编辑",
@@ -518,6 +534,7 @@ const EDITED_CATEGORY_LABELS: Record<keyof RewriteEditBaseline, string> = {
 const EDITED_CATEGORY_ORDER: Array<keyof RewriteEditBaseline> = [
   "rewrittenCover",
   "publishPersona",
+  "recruitmentDirection",
   "rewrittenTitle",
   "rewrittenBody",
   "rewrittenTags",
@@ -655,6 +672,7 @@ function isRewriteResultSaved(result: RewriteResult, note: RewriteResult["origin
     rewrittenTags: buildDisplayTags(result),
     rewriteRemark: result.rewriteRemark || "",
     publishPersona: result.publishPersona,
+    recruitmentDirection: result.recruitmentDirection,
   });
 
   if (result.savedFingerprint) {
@@ -685,6 +703,8 @@ function getLiveOriginalNote(
     rewriteDate: liveRecord.rewriteDate ?? result.originalNote.rewriteDate,
     rewriteRemark: liveRecord.rewriteRemark ?? result.originalNote.rewriteRemark,
     publishPersona: liveRecord.publishPersona ?? result.originalNote.publishPersona,
+    recruitmentDirection:
+      liveRecord.recruitmentDirection ?? result.originalNote.recruitmentDirection,
   };
 }
 
@@ -739,6 +759,10 @@ export default function RewriteModule() {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [bulkExpanded, setBulkExpanded] = useState(true);
   const [bulkExpandVersion, setBulkExpandVersion] = useState(0);
+  const [bulkMenuOpen, setBulkMenuOpen] = useState<"persona" | "direction" | null>(null);
+  const [bulkGeneratedEditing, setBulkGeneratedEditing] = useState(false);
+  const [bulkGeneratedEditIntent, setBulkGeneratedEditIntent] =
+    useState<BulkGeneratedEditIntent | null>(null);
   const [pendingExtractedEntries, setPendingExtractedEntries] = useState<PendingExtractedEntriesByScope>(
     createEmptyPendingExtractedEntries
   );
@@ -1180,6 +1204,7 @@ export default function RewriteModule() {
           rewrittenTags: result.rewrittenTags,
           rewriteRemark: result.rewriteRemark || "",
           publishPersona: result.publishPersona,
+          recruitmentDirection: result.recruitmentDirection || "",
         });
 
         updateRewriteResult(resultId, {
@@ -1349,6 +1374,7 @@ export default function RewriteModule() {
               rewrittenTags: buildDisplayTags(result),
               rewriteRemark: result.rewriteRemark || "",
               publishPersona: result.publishPersona,
+              recruitmentDirection: result.recruitmentDirection,
             }),
             originalNote: {
               ...result.originalNote,
@@ -1364,6 +1390,7 @@ export default function RewriteModule() {
               rewriteCoverReplaceInfo: result.coverReplaceInfo,
               rewriteDate,
               publishPersona: result.publishPersona,
+              recruitmentDirection: result.recruitmentDirection,
             },
           });
         });
@@ -1424,6 +1451,8 @@ export default function RewriteModule() {
                     liveRecord.rewriteCoverReplaceInfo || result.coverReplaceInfo,
                   rewriteDate: liveRecord.rewriteDate || rewriteDate,
                   publishPersona: liveRecord.publishPersona || result.publishPersona,
+                  recruitmentDirection:
+                    liveRecord.recruitmentDirection || result.recruitmentDirection,
                 },
               });
             });
@@ -1555,8 +1584,69 @@ export default function RewriteModule() {
     window.setTimeout(() => setSaveMsg(""), 2000);
   }
 
+  function applyBulkSingleSelect(
+    field: "publishPersona" | "recruitmentDirection",
+    value: string,
+    label: string
+  ) {
+    if (rewriteResults.length === 0) return;
+
+    const shouldClear = rewriteResults.every(
+      (result) => normalizeSavedText(result[field]) === value
+    );
+    const nextValue = shouldClear ? "" : value;
+    const timestamp = getCurrentIsoTimestamp();
+
+    rewriteResults.forEach((result) => {
+      const updates: Partial<RewriteResult> =
+        field === "publishPersona"
+          ? { publishPersona: nextValue }
+          : { recruitmentDirection: nextValue };
+      const effectiveFieldModifiedAt = getEffectiveFieldModifiedAt(result);
+      const nextFieldModifiedAt = buildNextFieldModifiedAt(
+        result,
+        updates,
+        timestamp,
+        effectiveFieldModifiedAt
+      );
+      const migratingLegacyFieldTime =
+        !result.fieldModifiedAt && Boolean(effectiveFieldModifiedAt);
+
+      updateRewriteResult(result.id, {
+        ...updates,
+        fieldModifiedAt: nextFieldModifiedAt,
+        ...(migratingLegacyFieldTime && !nextFieldModifiedAt
+          ? { lastModifiedAt: result.originalNote.rewriteDate || undefined }
+          : {}),
+      });
+    });
+
+    setBulkMenuOpen(null);
+    setSaveMsg(shouldClear ? `已取消批量${label}：${value}` : `已批量设置${label}：${value}`);
+    window.setTimeout(() => setSaveMsg(""), 2000);
+  }
+
+  function handleBulkGeneratedEditToggle() {
+    const editableCount = rewriteResults.filter((item) => item.status !== "processing").length;
+    if (editableCount === 0) return;
+
+    const action: BulkGeneratedEditIntent["action"] = bulkGeneratedEditing ? "save" : "open";
+    setBulkGeneratedEditing((current) => !current);
+    setBulkGeneratedEditIntent((current) => ({
+      version: (current?.version || 0) + 1,
+      action,
+    }));
+    setSaveMsg(
+      action === "open"
+        ? `已打开 ${editableCount} 条笔记的编辑框`
+        : `已提交保存 ${editableCount} 条笔记的编辑内容`
+    );
+    window.setTimeout(() => setSaveMsg(""), 2000);
+  }
+
   const doneCount = rewriteResults.filter((item) => item.status === "done").length;
   const processingCount = rewriteResults.filter((item) => item.status === "processing").length;
+  const editableGeneratedCount = rewriteResults.filter((item) => item.status !== "processing").length;
   const selectedDoneCount = rewriteResults.filter(
     (item) => selectedRewriteIds.has(item.id) && item.status === "done"
   ).length;
@@ -1584,7 +1674,84 @@ export default function RewriteModule() {
               )}
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            {rewriteResults.length > 0 && (
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setBulkMenuOpen((current) => (current === "persona" ? null : "persona"))
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-gray-300 hover:bg-gray-50 hover:text-gray-800"
+                  >
+                    发布人设
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </button>
+                  {bulkMenuOpen === "persona" && (
+                    <div className="absolute right-0 z-30 mt-2 w-32 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                      {PUBLISH_PERSONA_OPTIONS.map((option) => (
+                        <button
+                          key={option}
+                          type="button"
+                          onClick={() => applyBulkSingleSelect("publishPersona", option, "发布人设")}
+                          className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900"
+                        >
+                          <span>{option}</span>
+                          {rewriteResults.every(
+                            (item) => normalizeSavedText(item.publishPersona) === option
+                          ) && <Check className="h-3.5 w-3.5 text-red-500" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setBulkMenuOpen((current) => (current === "direction" ? null : "direction"))
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-gray-300 hover:bg-gray-50 hover:text-gray-800"
+                  >
+                    招聘方向
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </button>
+                  {bulkMenuOpen === "direction" && (
+                    <div className="absolute right-0 z-30 mt-2 w-28 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                      {RECRUITMENT_DIRECTION_OPTIONS.map((option) => (
+                        <button
+                          key={option}
+                          type="button"
+                          onClick={() =>
+                            applyBulkSingleSelect("recruitmentDirection", option, "招聘方向")
+                          }
+                          className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900"
+                        >
+                          <span>{option}</span>
+                          {rewriteResults.every(
+                            (item) => normalizeSavedText(item.recruitmentDirection) === option
+                          ) && <Check className="h-3.5 w-3.5 text-red-500" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleBulkGeneratedEditToggle}
+                  disabled={editableGeneratedCount === 0}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-gray-300 hover:bg-gray-50 hover:text-gray-800 disabled:cursor-not-allowed disabled:text-gray-300"
+                >
+                  {bulkGeneratedEditing ? (
+                    <Save className="h-4 w-4" />
+                  ) : (
+                    <Edit3 className="h-4 w-4" />
+                  )}
+                  {bulkGeneratedEditing ? "一键保存全部" : "一键编辑全部"}
+                </button>
+              </div>
+            )}
             {rewriteResults.length > 0 && (
               <button
                 onClick={() => {
@@ -1991,6 +2158,7 @@ export default function RewriteModule() {
                   selected={selectedRewriteIds.has(result.id)}
                   bulkExpanded={bulkExpanded}
                   bulkExpandVersion={bulkExpandVersion}
+                  bulkEditIntent={bulkGeneratedEditIntent}
                   onToggleSelect={() => toggleRewriteSelect(result.id)}
                   onUpdate={(updates) => updateRewriteResult(result.id, updates)}
                   onOriginalNoteUpdate={(updates) =>
@@ -2024,6 +2192,7 @@ function RewriteRow({
   selected,
   bulkExpanded,
   bulkExpandVersion,
+  bulkEditIntent,
   onToggleSelect,
   onUpdate,
   onOriginalNoteUpdate,
@@ -2038,6 +2207,7 @@ function RewriteRow({
   selected: boolean;
   bulkExpanded: boolean;
   bulkExpandVersion: number;
+  bulkEditIntent: BulkGeneratedEditIntent | null;
   onToggleSelect: () => void;
   onUpdate: (updates: Partial<RewriteResult>) => void;
   onOriginalNoteUpdate: (updates: Partial<RewriteResult["originalNote"]>) => Promise<void>;
@@ -2095,6 +2265,14 @@ function RewriteRow({
   const [syncedMultilineHeights, setSyncedMultilineHeights] = useState<
     Partial<Record<SyncedMultilineField, number>>
   >({});
+  const handledBulkEditVersionRef = useRef(0);
+  const bulkGeneratedEditorActionsRef = useRef<{
+    open: () => void;
+    save: () => void;
+  }>({
+    open: () => undefined,
+    save: () => undefined,
+  });
   const customTemplates = useCoverTemplateLibraryStore((state) => state.customTemplates);
   const addCustomTemplate = useCoverTemplateLibraryStore((state) => state.addCustomTemplate);
   const removeCustomTemplate = useCoverTemplateLibraryStore((state) => state.removeCustomTemplate);
@@ -2128,6 +2306,7 @@ function RewriteRow({
     Boolean(result.coverBaseImage) && result.coverBaseImage !== activeTemplateAsset.src;
   const selectedTemplateAssetId = currentTemplateAsset?.id || resolvedCoverTemplate.asset.id;
   const selectedPublishPersona = (result.publishPersona || "").trim();
+  const selectedRecruitmentDirection = (result.recruitmentDirection || "").trim();
   const isSaved = isRewriteResultSaved(result, note);
   const editedCategories = getEditedRewriteCategories(result, draftOverrides);
   const effectiveFieldModifiedAt = getEffectiveFieldModifiedAt(result);
@@ -2475,10 +2654,42 @@ function RewriteRow({
     }
   }
 
+  bulkGeneratedEditorActionsRef.current = {
+    open: openAllGeneratedFieldEditors,
+    save: () => {
+      void handleToggleGeneratedFieldEditors();
+    },
+  };
+
+  useEffect(() => {
+    if (!bulkEditIntent || handledBulkEditVersionRef.current === bulkEditIntent.version) {
+      return;
+    }
+
+    handledBulkEditVersionRef.current = bulkEditIntent.version;
+
+    if (!canEditGeneratedFields || generatingCover) return;
+
+    if (bulkEditIntent.action === "open") {
+      bulkGeneratedEditorActionsRef.current.open();
+      return;
+    }
+
+    if (hasAnyGeneratedFieldEditing) {
+      bulkGeneratedEditorActionsRef.current.save();
+    }
+  }, [
+    bulkEditIntent,
+    canEditGeneratedFields,
+    generatingCover,
+    hasAnyGeneratedFieldEditing,
+  ]);
+
   function hasMeaningfulResultChange(updates: Partial<RewriteResult>) {
     const trackedFields: Array<keyof RewriteEditBaseline> = [
       "rewrittenCover",
       "publishPersona",
+      "recruitmentDirection",
       "rewrittenTitle",
       "rewrittenBody",
       "rewrittenTags",
@@ -2525,6 +2736,12 @@ function RewriteRow({
 
   function handlePublishPersonaSelect(value: string) {
     applyManualUpdate({ publishPersona: selectedPublishPersona === value ? "" : value });
+  }
+
+  function handleRecruitmentDirectionSelect(value: string) {
+    applyManualUpdate({
+      recruitmentDirection: selectedRecruitmentDirection === value ? "" : value,
+    });
   }
 
   async function saveOriginalNoteField(
@@ -3138,10 +3355,18 @@ function RewriteRow({
                         </button>
                       </div>
                     </div>
-                    <PublishPersonaChecklist
+                    <SingleSelectChecklist
+                      label="发布人设："
                       options={PUBLISH_PERSONA_OPTIONS}
                       value={selectedPublishPersona}
                       onSelect={handlePublishPersonaSelect}
+                      disabled={isProcessing}
+                    />
+                    <SingleSelectChecklist
+                      label="招聘方向："
+                      options={RECRUITMENT_DIRECTION_OPTIONS}
+                      value={selectedRecruitmentDirection}
+                      onSelect={handleRecruitmentDirectionSelect}
                       disabled={isProcessing}
                     />
 
@@ -3516,12 +3741,14 @@ function ImagePreviewModal({
   );
 }
 
-function PublishPersonaChecklist({
+function SingleSelectChecklist({
+  label,
   options,
   value,
   onSelect,
   disabled = false,
 }: {
+  label: string;
   options: readonly string[];
   value: string;
   onSelect: (value: string) => void;
@@ -3529,6 +3756,7 @@ function PublishPersonaChecklist({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2 pt-0.5">
+      <span className="min-w-[68px] text-xs font-medium text-gray-500">{label}</span>
       {options.map((option) => {
         const selected = option === value;
 

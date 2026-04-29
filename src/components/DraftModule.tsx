@@ -162,6 +162,11 @@ function DraftResultRow({ result }: { result: RewriteResult }) {
                 )}
               </div>
             )}
+            {result.recruitmentDirection && (
+              <span className="mt-1.5 inline-flex rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-600">
+                招聘方向：{result.recruitmentDirection}
+              </span>
+            )}
           </div>
         </div>
         <button
@@ -277,6 +282,12 @@ function DraftResultRow({ result }: { result: RewriteResult }) {
                 <p className="text-xs text-gray-700 whitespace-pre-wrap">
                   {result.rewriteRemark}
                 </p>
+              </div>
+            )}
+            {result.recruitmentDirection && (
+              <div>
+                <p className="text-xs text-gray-400">招聘方向</p>
+                <p className="text-xs text-gray-700">{result.recruitmentDirection}</p>
               </div>
             )}
           </div>

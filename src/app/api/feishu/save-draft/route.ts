@@ -54,6 +54,7 @@ const REWRITE_TABLE_FIELDS = [
   { field_name: "二创标签", type: FIELD_TYPE_TEXT },
   { field_name: "备注", type: FIELD_TYPE_TEXT },
   { field_name: "发布人设", type: FIELD_TYPE_SINGLE_SELECT },
+  { field_name: "招聘方向", type: FIELD_TYPE_SINGLE_SELECT },
   { field_name: COMBINED_REPLACE_INFO_FIELD_NAME, type: FIELD_TYPE_TEXT },
   { field_name: "笔记链接", type: FIELD_TYPE_TEXT },
   { field_name: "源记录ID", type: FIELD_TYPE_TEXT },
@@ -178,6 +179,21 @@ function assertFieldTypeOrThrow(
   throw new Error(
     message ||
       `飞书字段「${fieldName}」类型错误，当前为 ${actualType ?? "缺失"}，预期为 ${expectedType}`
+  );
+}
+
+function assertFieldTypeInOrThrow(
+  fieldTypeMap: Map<string, number>,
+  fieldName: string,
+  expectedTypes: number[],
+  message?: string
+) {
+  const actualType = fieldTypeMap.get(fieldName);
+  if (actualType !== undefined && expectedTypes.includes(actualType)) return;
+
+  throw new Error(
+    message ||
+      `飞书字段「${fieldName}」类型错误，当前为 ${actualType ?? "缺失"}，预期为 ${expectedTypes.join(" 或 ")}`
   );
 }
 
@@ -509,6 +525,12 @@ async function ensureRewriteTable() {
     FIELD_TYPE_SINGLE_SELECT,
     "二创库字段「发布人设」当前不是单选字段，无法写入人设。请在飞书里把它改成单选字段。"
   );
+  assertFieldTypeInOrThrow(
+    fieldTypeMap,
+    "招聘方向",
+    [FIELD_TYPE_SINGLE_SELECT, FIELD_TYPE_TEXT],
+    "二创库字段「招聘方向」当前不是单选或文本字段，无法写入招聘方向。请在飞书里把它改成单选字段。"
+  );
   assertFieldTypeOrThrow(
     fieldTypeMap,
     "备注",
@@ -578,6 +600,7 @@ function buildRewriteTableFields(params: {
     normalizedRewrittenCoverText
   );
   setIfFieldHasValue(fields, targetFieldTypeMap, "发布人设", result.publishPersona);
+  setIfFieldHasValue(fields, targetFieldTypeMap, "招聘方向", result.recruitmentDirection);
   setIfFieldHasValue(
     fields,
     targetFieldTypeMap,
@@ -632,6 +655,7 @@ function buildCollectUpdateFields(
     normalizedRewrittenCoverText
   );
   setIfFieldHasValue(fields, collectFieldTypeMap, "发布人设", result.publishPersona);
+  setIfFieldHasValue(fields, collectFieldTypeMap, "招聘方向", result.recruitmentDirection);
   setIfFieldExists(fields, collectFieldTypeMap, "已二创", true);
 
   return fields;

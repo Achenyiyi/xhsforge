@@ -28,6 +28,7 @@ import type { XHSNote } from "@/types";
 import { getCachedNoteDetail, setCachedNoteDetail } from "@/lib/xhsCache";
 
 const FIELD_TYPE_TEXT = 1;
+const FIELD_TYPE_SINGLE_SELECT = 3;
 const FIELD_TYPE_DATETIME = 5;
 const FIELD_TYPE_URL = 15;
 const FIELD_TYPE_ATTACHMENT = 17;
@@ -48,6 +49,20 @@ const RETRYABLE_ERROR_KEYWORDS = [
   "network connection failed",
   "网络连接失败",
 ] as const;
+
+type NoteDetailApiRaw = {
+  code?: unknown;
+  msg?: unknown;
+  message?: unknown;
+  success?: unknown;
+  data?: unknown;
+  note_card?: unknown;
+  note?: unknown;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
 
 function toString(value: unknown): string {
   if (!value) return "";
@@ -106,6 +121,66 @@ function isRetryableXhsCode(code: number) {
   return RETRYABLE_XHS_CODES.has(code);
 }
 
+function isLikelyNoteCard(value: Record<string, unknown>) {
+  return [
+    "note_id",
+    "id",
+    "title",
+    "desc",
+    "image_list",
+    "images_list",
+    "interact_info",
+  ].some((key) => key in value);
+}
+
+function extractNoteCardCandidate(value: unknown, depth = 0): Record<string, unknown> | null {
+  if (depth > 3) return null;
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const nested = extractNoteCardCandidate(item, depth + 1);
+      if (nested) return nested;
+    }
+    return null;
+  }
+
+  if (!isRecord(value)) return null;
+
+  const directKeys = [
+    "note_card",
+    "note",
+    "note_info",
+    "noteInfo",
+    "note_detail",
+    "noteDetail",
+  ];
+
+  for (const key of directKeys) {
+    const nested = extractNoteCardCandidate(value[key], depth + 1);
+    if (nested) return nested;
+  }
+
+  if (isLikelyNoteCard(value)) return value;
+
+  const containerKeys = ["data", "items", "notes", "list", "result"];
+  for (const key of containerKeys) {
+    const nested = extractNoteCardCandidate(value[key], depth + 1);
+    if (nested) return nested;
+  }
+
+  return null;
+}
+
+function isSuccessDetailResponse(raw: NoteDetailApiRaw, resp: Response) {
+  const numericCode = toNumber(raw.code, Number.NaN);
+  if (!resp.ok) return false;
+  if (Number.isFinite(numericCode) && numericCode === 0) return true;
+  if (raw.success === true) return true;
+
+  const message = toString(raw.msg || raw.message).trim().toLowerCase();
+  return !Number.isFinite(numericCode) && ["success", "ok"].includes(message);
+}
+
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = XHS_REQUEST_TIMEOUT_MS) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -145,7 +220,7 @@ function toIsoString(timestamp: unknown): string {
   return new Date(milliseconds).toISOString();
 }
 
-async function fetchNoteDetail(noteId: string): Promise<Record<string, unknown>> {
+async function fetchNoteDetail(noteId: string): Promise<Record<string, unknown> | null> {
   const cached = getCachedNoteDetail(noteId);
   if (cached) return cached;
 
@@ -162,19 +237,19 @@ async function fetchNoteDetail(noteId: string): Promise<Record<string, unknown>>
         body: JSON.stringify({ note_id: noteId }),
       });
 
-      const raw = (await resp.json()) as {
-        code?: unknown;
-        msg?: string;
-        message?: string;
-        data?: { note_card?: Record<string, unknown> } | null;
-      };
+      const raw = (await resp.json()) as NoteDetailApiRaw;
       const code = toNumber(raw.code, -1);
-      const noteCard = raw.data?.note_card;
-      const message = raw.msg || raw.message || noteId;
+      const noteCard = extractNoteCardCandidate(raw);
+      const message = toString(raw.msg || raw.message) || noteId;
 
-      if (resp.ok && code === 0 && noteCard) {
-        setCachedNoteDetail(noteId, noteCard, NOTE_DETAIL_CACHE_TTL_MS);
-        return noteCard;
+      if (isSuccessDetailResponse(raw, resp)) {
+        if (noteCard) {
+          setCachedNoteDetail(noteId, noteCard, NOTE_DETAIL_CACHE_TTL_MS);
+          return noteCard;
+        }
+
+        console.warn(`XHS 笔记详情返回成功但缺少 note_card，已使用搜索结果导入：${noteId}`);
+        return null;
       }
 
       if (
@@ -204,6 +279,18 @@ async function fetchNoteDetail(noteId: string): Promise<Record<string, unknown>>
   throw lastError instanceof Error ? lastError : new Error(`获取笔记详情失败: ${noteId}`);
 }
 
+function buildFallbackImportNote(note: XHSNote): XHSNote {
+  return {
+    ...note,
+    title: sanitizeTitle(note.title),
+    desc: stripTagsFromText(note.desc),
+    cover: note.cover || note.imageList?.[0] || "",
+    imageList: note.imageList || [],
+    noteLink: normalizeNoteLink(note.noteLink, note.id),
+    tags: dedupeTags(note.tags || []),
+  };
+}
+
 async function loadExistingNoteKeys() {
   const keys = new Set<string>();
   let pageToken: string | undefined;
@@ -231,16 +318,23 @@ async function loadExistingNoteKeys() {
 
 async function prepareImportNote(note: XHSNote): Promise<XHSNote> {
   if (!shouldFetchNoteDetail(note)) {
-    return {
-      ...note,
-      title: sanitizeTitle(note.title),
-      desc: stripTagsFromText(note.desc),
-      noteLink: normalizeNoteLink(note.noteLink, note.id),
-      tags: dedupeTags(note.tags || []),
-    };
+    return buildFallbackImportNote(note);
   }
 
-  const noteCard = await fetchNoteDetail(note.id);
+  let noteCard: Record<string, unknown> | null = null;
+
+  try {
+    noteCard = await fetchNoteDetail(note.id);
+  } catch (error) {
+    console.warn(
+      `XHS 笔记详情补拉失败，已使用搜索结果导入 ${note.id}: ${getErrorMessage(error)}`
+    );
+  }
+
+  if (!noteCard) {
+    return buildFallbackImportNote(note);
+  }
+
   const interactInfo =
     (noteCard.interact_info as Record<string, unknown> | undefined) || {};
   const imageList = Array.isArray(noteCard.image_list)
@@ -292,6 +386,20 @@ function assertFieldTypeIfPresent(
   assertFieldType(fieldTypeMap, fieldName, expectedType);
 }
 
+function assertFieldTypeInIfPresent(
+  fieldTypeMap: Map<string, number>,
+  fieldName: string,
+  expectedTypes: number[]
+) {
+  if (!fieldTypeMap.has(fieldName)) return;
+  const actualType = fieldTypeMap.get(fieldName);
+  if (actualType !== undefined && expectedTypes.includes(actualType)) return;
+
+  throw new Error(
+    `飞书字段「${fieldName}」类型错误，当前为 ${actualType ?? "缺失"}，预期为 ${expectedTypes.join(" 或 ")}`
+  );
+}
+
 async function uploadNoteCover(note: XHSNote) {
   const imageUrl = normalizeImageUrl(note.cover);
   const resp = await fetch(imageUrl, {
@@ -330,6 +438,10 @@ export async function POST(req: NextRequest) {
     assertFieldTypeIfPresent(fieldTypeMap, "笔记链接", FIELD_TYPE_URL);
     assertFieldTypeIfPresent(fieldTypeMap, "封面", FIELD_TYPE_ATTACHMENT);
     assertFieldTypeIfPresent(fieldTypeMap, "封面文案", FIELD_TYPE_TEXT);
+    assertFieldTypeInIfPresent(fieldTypeMap, "招聘方向", [
+      FIELD_TYPE_TEXT,
+      FIELD_TYPE_SINGLE_SELECT,
+    ]);
 
     const existingNoteKeys = await loadExistingNoteKeys();
     const pendingKeys = new Set<string>();
@@ -407,6 +519,7 @@ export async function POST(req: NextRequest) {
       setIfFieldExists(fields, fieldTypeMap, "转发数", note.shareCount || 0);
       setIfFieldHasValue(fields, fieldTypeMap, "封面文案", normalizedCoverText);
       setIfFieldHasValue(fields, fieldTypeMap, "标签", formatTagsForStorage(note.tags || []));
+      setIfFieldHasValue(fields, fieldTypeMap, "招聘方向", note.recruitmentDirection);
       setIfFieldExists(fields, fieldTypeMap, "已二创", false);
 
       if (fieldTypeMap.has("笔记链接") && note.noteLink) {

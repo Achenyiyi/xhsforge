@@ -25,6 +25,7 @@ type RewriteSnapshot = {
   rewriteTags: string[];
   rewriteRemark: string;
   publishPersona: string;
+  recruitmentDirection: string;
 };
 
 /** 安全取数字 */
@@ -165,6 +166,7 @@ function buildRewriteSnapshot(fields: Record<string, unknown>): RewriteSnapshot 
     rewriteTags,
     rewriteRemark: toStr(fields["备注"]),
     publishPersona: toStr(fields["发布人设"]),
+    recruitmentDirection: toStr(fields["招聘方向"]),
   };
 }
 
@@ -302,6 +304,10 @@ export async function GET() {
         publishPersona:
           toStr(f["发布人设"]) ||
           rewriteSnapshot?.publishPersona ||
+          "",
+        recruitmentDirection:
+          toStr(f["招聘方向"]) ||
+          rewriteSnapshot?.recruitmentDirection ||
           "",
         hasRewritten: Boolean(f["已二创"]) || Boolean(rewriteSnapshot),
         // 标题和正文字段（实际字段名已确认）
