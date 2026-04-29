@@ -42,6 +42,7 @@ export interface FeishuCollectRecord {
   rewriteCover?: string; // 二创封面
   rewriteCoverText?: string; // 二创封面文案
   rewriteTags?: string[]; // 二创标签
+  rewriteRemark?: string; // 二创备注
   publishPersona?: string; // 发布人设
   hasRewritten?: boolean; // 已二创（复选框）
   // 原始笔记内容（在飞书不存储，仅内存用）
@@ -58,6 +59,7 @@ export interface RewriteEditBaseline {
   rewrittenCover: string;
   rewrittenCoverText: string;
   rewrittenTags: string[];
+  rewriteRemark: string;
   publishPersona: string;
 }
 
@@ -75,6 +77,7 @@ export interface RewriteResult {
   coverTemplateVariantId?: string; // 当前模板搭配
   coverBaseImage?: string; // 当前底图（模板图或用户上传图）
   rewrittenTags: string[];
+  rewriteRemark: string;
   publishPersona: string;
   titleReplaceInfo: string; // 本次标题生成实际使用的替换信息
   bodyReplaceInfo: string; // 本次正文生成实际使用的替换信息

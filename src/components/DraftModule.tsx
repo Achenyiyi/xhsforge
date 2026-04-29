@@ -271,6 +271,14 @@ function DraftResultRow({ result }: { result: RewriteResult }) {
                 </div>
               </div>
             )}
+            {result.rewriteRemark && (
+              <div>
+                <p className="text-xs text-gray-400">备注</p>
+                <p className="text-xs text-gray-700 whitespace-pre-wrap">
+                  {result.rewriteRemark}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}

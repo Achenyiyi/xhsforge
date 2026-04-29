@@ -11,6 +11,7 @@ import {
   Check,
   Edit3,
   RotateCcw,
+  Undo2,
   X,
   Plus,
   Trash2,
@@ -42,11 +43,22 @@ import {
 } from "@/store/rewriteSettingsStore";
 import { usePromptsSettingsStore } from "@/store/promptsSettingsStore";
 import { dedupeTags, extractTagsFromText, sanitizeTitle } from "@/lib/xhs";
+import { buildOpenableNoteLink } from "@/lib/xhsLink";
 import type { RewriteEditBaseline, RewriteResult } from "@/types";
 import Image from "next/image";
 
 type RetryableRewriteField = "coverText" | "title" | "body";
 type SyncedMultilineField = "coverText" | "body";
+type OriginalEditableField = "coverText" | "title" | "body" | "tags";
+type UndoableRewriteField =
+  | "rewrittenCoverText"
+  | "rewrittenTitle"
+  | "rewrittenBody"
+  | "rewrittenTags"
+  | "rewriteRemark";
+type RewriteUndoHistory = Partial<{
+  [K in UndoableRewriteField]: Array<RewriteEditBaseline[K]>;
+}>;
 
 type ExtractedReplaceInfoByScope = Record<ReplaceLibraryScope, string[]>;
 type PendingExtractedEntriesByScope = Record<ReplaceLibraryScope, ReplaceEntryDraft[]>;
@@ -413,6 +425,7 @@ function buildRewriteSaveFingerprint(
     | "rewrittenCover"
     | "rewrittenCoverText"
     | "rewrittenTags"
+    | "rewriteRemark"
     | "publishPersona"
   >
 ) {
@@ -422,6 +435,7 @@ function buildRewriteSaveFingerprint(
     rewrittenCover: normalizeSavedText(value.rewrittenCover),
     rewrittenCoverText: normalizeSavedCoverText(value.rewrittenCoverText),
     rewrittenTags: normalizeSavedTags(value.rewrittenTags),
+    rewriteRemark: normalizeSavedText(value.rewriteRemark),
     publishPersona: normalizeSavedText(value.publishPersona),
   });
 }
@@ -432,6 +446,7 @@ function buildSavedSnapshotFallbackFingerprint(note: RewriteResult["originalNote
     rewrittenBody: normalizeSavedText(note.rewriteBody),
     rewrittenCoverText: normalizeSavedCoverText(note.rewriteCoverText),
     rewrittenTags: normalizeSavedTags(note.rewriteTags),
+    rewriteRemark: normalizeSavedText(note.rewriteRemark),
     publishPersona: normalizeSavedText(note.publishPersona),
   });
 }
@@ -442,6 +457,7 @@ function buildCurrentResultFallbackFingerprint(result: RewriteResult) {
     rewrittenBody: normalizeSavedText(result.rewrittenBody),
     rewrittenCoverText: normalizeSavedCoverText(result.rewrittenCoverText),
     rewrittenTags: normalizeSavedTags(buildDisplayTags(result)),
+    rewriteRemark: normalizeSavedText(result.rewriteRemark),
     publishPersona: normalizeSavedText(result.publishPersona),
   });
 }
@@ -453,6 +469,7 @@ function buildTrackedEditBaseline(value: RewriteEditBaseline): RewriteEditBaseli
     rewrittenCover: value.rewrittenCover || "",
     rewrittenCoverText: value.rewrittenCoverText || "",
     rewrittenTags: [...(value.rewrittenTags || [])],
+    rewriteRemark: value.rewriteRemark || "",
     publishPersona: value.publishPersona || "",
   };
 }
@@ -467,6 +484,7 @@ function buildCurrentTrackedEditBaseline(
     rewrittenCover: overrides.rewrittenCover ?? result.rewrittenCover,
     rewrittenCoverText: overrides.rewrittenCoverText ?? result.rewrittenCoverText,
     rewrittenTags: overrides.rewrittenTags ?? result.rewrittenTags,
+    rewriteRemark: overrides.rewriteRemark ?? result.rewriteRemark ?? "",
     publishPersona: overrides.publishPersona ?? result.publishPersona,
   });
 }
@@ -480,6 +498,8 @@ function mergeTrackedEditBaseline(
     ...(result.editBaseline || {}),
     ...updates,
     rewrittenTags: updates.rewrittenTags ?? result.editBaseline?.rewrittenTags ?? result.rewrittenTags,
+    rewriteRemark:
+      updates.rewriteRemark ?? result.editBaseline?.rewriteRemark ?? result.rewriteRemark ?? "",
     publishPersona:
       updates.publishPersona ?? result.editBaseline?.publishPersona ?? result.publishPersona,
   });
@@ -491,6 +511,7 @@ const EDITED_CATEGORY_LABELS: Record<keyof RewriteEditBaseline, string> = {
   rewrittenTitle: "二创标题已编辑",
   rewrittenBody: "二创正文已编辑",
   rewrittenTags: "二创标签已编辑",
+  rewriteRemark: "备注已编辑",
   rewrittenCoverText: "二创封面文案已编辑",
 };
 
@@ -500,6 +521,7 @@ const EDITED_CATEGORY_ORDER: Array<keyof RewriteEditBaseline> = [
   "rewrittenTitle",
   "rewrittenBody",
   "rewrittenTags",
+  "rewriteRemark",
   "rewrittenCoverText",
 ];
 
@@ -512,6 +534,12 @@ function isTrackedEditValueEqual(
   }
 
   return left === right;
+}
+
+function cloneTrackedEditValue<K extends keyof RewriteEditBaseline>(
+  value: RewriteEditBaseline[K]
+): RewriteEditBaseline[K] {
+  return (Array.isArray(value) ? [...value] : value) as RewriteEditBaseline[K];
 }
 
 function getTrackedResultValue<K extends keyof RewriteEditBaseline>(
@@ -625,6 +653,7 @@ function isRewriteResultSaved(result: RewriteResult, note: RewriteResult["origin
     rewrittenCover: result.rewrittenCover,
     rewrittenCoverText: result.rewrittenCoverText,
     rewrittenTags: buildDisplayTags(result),
+    rewriteRemark: result.rewriteRemark || "",
     publishPersona: result.publishPersona,
   });
 
@@ -648,13 +677,14 @@ function getLiveOriginalNote(
     cover: liveRecord.cover || result.originalNote.cover,
     coverAttachmentToken:
       liveRecord.coverAttachmentToken || result.originalNote.coverAttachmentToken,
-    coverText: liveRecord.coverText || result.originalNote.coverText,
-    originalTitle: liveRecord.originalTitle || result.originalNote.originalTitle,
-    originalBody: liveRecord.originalBody || result.originalNote.originalBody,
-    originalTags: liveRecord.originalTags || result.originalNote.originalTags,
+    coverText: liveRecord.coverText ?? result.originalNote.coverText,
+    originalTitle: liveRecord.originalTitle ?? result.originalNote.originalTitle,
+    originalBody: liveRecord.originalBody ?? result.originalNote.originalBody,
+    originalTags: liveRecord.originalTags ?? result.originalNote.originalTags,
     hasRewritten: liveRecord.hasRewritten ?? result.originalNote.hasRewritten,
-    rewriteDate: liveRecord.rewriteDate || result.originalNote.rewriteDate,
-    publishPersona: liveRecord.publishPersona || result.originalNote.publishPersona,
+    rewriteDate: liveRecord.rewriteDate ?? result.originalNote.rewriteDate,
+    rewriteRemark: liveRecord.rewriteRemark ?? result.originalNote.rewriteRemark,
+    publishPersona: liveRecord.publishPersona ?? result.originalNote.publishPersona,
   };
 }
 
@@ -722,6 +752,57 @@ export default function RewriteModule() {
           .map((record) => [record.recordId!, record] as const)
       ),
     [collectRecords]
+  );
+
+  const syncOriginalNoteToCollect = useCallback(
+    async (recordId: string, updates: Partial<RewriteResult["originalNote"]>) => {
+      const fields: Record<string, unknown> = {};
+      if (Object.prototype.hasOwnProperty.call(updates, "coverText")) {
+        fields.coverText = updates.coverText ?? "";
+      }
+      if (Object.prototype.hasOwnProperty.call(updates, "originalTitle")) {
+        fields.title = updates.originalTitle ?? "";
+      }
+      if (Object.prototype.hasOwnProperty.call(updates, "originalBody")) {
+        fields.body = updates.originalBody ?? "";
+      }
+      if (Object.prototype.hasOwnProperty.call(updates, "originalTags")) {
+        fields.tags = updates.originalTags ?? [];
+      }
+
+      const res = await fetch("/api/feishu/update-collect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recordId, fields }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "同步爆款库失败");
+
+      const returnedUpdates =
+        data.updatedRecord && typeof data.updatedRecord === "object"
+          ? (data.updatedRecord as Partial<RewriteResult["originalNote"]>)
+          : {};
+      const normalizedUpdates = { ...updates, ...returnedUpdates };
+      const state = useAppStore.getState();
+
+      setCollectRecords(
+        state.collectRecords.map((record) =>
+          record.recordId === recordId ? { ...record, ...normalizedUpdates } : record
+        )
+      );
+
+      state.rewriteResults
+        .filter((item) => item.recordId === recordId)
+        .forEach((item) => {
+          updateRewriteResult(item.id, {
+            originalNote: {
+              ...item.originalNote,
+              ...normalizedUpdates,
+            },
+          });
+        });
+    },
+    [setCollectRecords, updateRewriteResult]
   );
 
   const existingEntriesByScope = useMemo(
@@ -1097,6 +1178,7 @@ export default function RewriteModule() {
           rewrittenCover,
           rewrittenCoverText,
           rewrittenTags: result.rewrittenTags,
+          rewriteRemark: result.rewriteRemark || "",
           publishPersona: result.publishPersona,
         });
 
@@ -1265,6 +1347,7 @@ export default function RewriteModule() {
               rewrittenCover: result.rewrittenCover,
               rewrittenCoverText: result.rewrittenCoverText,
               rewrittenTags: buildDisplayTags(result),
+              rewriteRemark: result.rewriteRemark || "",
               publishPersona: result.publishPersona,
             }),
             originalNote: {
@@ -1275,6 +1358,7 @@ export default function RewriteModule() {
               rewriteCover: result.rewrittenCover,
               rewriteCoverText: result.rewrittenCoverText,
               rewriteTags: buildDisplayTags(result),
+              rewriteRemark: result.rewriteRemark || "",
               rewriteTitleReplaceInfo: result.titleReplaceInfo,
               rewriteBodyReplaceInfo: result.bodyReplaceInfo,
               rewriteCoverReplaceInfo: result.coverReplaceInfo,
@@ -1320,10 +1404,10 @@ export default function RewriteModule() {
                   cover: liveRecord.cover || result.originalNote.cover,
                   coverAttachmentToken:
                     liveRecord.coverAttachmentToken || result.originalNote.coverAttachmentToken,
-                  coverText: liveRecord.coverText || result.originalNote.coverText,
-                  originalTitle: liveRecord.originalTitle || result.originalNote.originalTitle,
-                  originalBody: liveRecord.originalBody || result.originalNote.originalBody,
-                  originalTags: liveRecord.originalTags || result.originalNote.originalTags,
+                  coverText: liveRecord.coverText ?? result.originalNote.coverText,
+                  originalTitle: liveRecord.originalTitle ?? result.originalNote.originalTitle,
+                  originalBody: liveRecord.originalBody ?? result.originalNote.originalBody,
+                  originalTags: liveRecord.originalTags ?? result.originalNote.originalTags,
                   hasRewritten: liveRecord.hasRewritten ?? true,
                   rewriteTitle: liveRecord.rewriteTitle || result.rewrittenTitle,
                   rewriteBody: liveRecord.rewriteBody || result.rewrittenBody,
@@ -1331,6 +1415,7 @@ export default function RewriteModule() {
                   rewriteCoverText:
                     liveRecord.rewriteCoverText || result.rewrittenCoverText,
                   rewriteTags: liveRecord.rewriteTags || buildDisplayTags(result),
+                  rewriteRemark: liveRecord.rewriteRemark ?? result.rewriteRemark ?? "",
                   rewriteTitleReplaceInfo:
                     liveRecord.rewriteTitleReplaceInfo || result.titleReplaceInfo,
                   rewriteBodyReplaceInfo:
@@ -1908,6 +1993,9 @@ export default function RewriteModule() {
                   bulkExpandVersion={bulkExpandVersion}
                   onToggleSelect={() => toggleRewriteSelect(result.id)}
                   onUpdate={(updates) => updateRewriteResult(result.id, updates)}
+                  onOriginalNoteUpdate={(updates) =>
+                    syncOriginalNoteToCollect(result.recordId, updates)
+                  }
                   onRetry={() => startRewrite(result.id)}
                   onToggleProcessing={() => toggleRewriteProcessing(result.id)}
                   onRetryField={(field) => retryRewriteField(result.id, field)}
@@ -1938,6 +2026,7 @@ function RewriteRow({
   bulkExpandVersion,
   onToggleSelect,
   onUpdate,
+  onOriginalNoteUpdate,
   onRetry,
   onToggleProcessing,
   onRetryField,
@@ -1951,6 +2040,7 @@ function RewriteRow({
   bulkExpandVersion: number;
   onToggleSelect: () => void;
   onUpdate: (updates: Partial<RewriteResult>) => void;
+  onOriginalNoteUpdate: (updates: Partial<RewriteResult["originalNote"]>) => Promise<void>;
   onRetry: () => void;
   onToggleProcessing: () => void;
   onRetryField: (field: RetryableRewriteField) => Promise<void>;
@@ -1961,10 +2051,20 @@ function RewriteRow({
   const [editingBody, setEditingBody] = useState(false);
   const [editingCoverText, setEditingCoverText] = useState(false);
   const [editingRewrittenTags, setEditingRewrittenTags] = useState(false);
+  const [editingRemark, setEditingRemark] = useState(false);
+  const [editingOriginalCoverText, setEditingOriginalCoverText] = useState(false);
+  const [editingOriginalTitle, setEditingOriginalTitle] = useState(false);
+  const [editingOriginalBody, setEditingOriginalBody] = useState(false);
+  const [editingOriginalTags, setEditingOriginalTags] = useState(false);
   const [draftOverrides, setDraftOverrides] = useState<Partial<RewriteEditBaseline>>({});
   const [draftFieldModifiedAt, setDraftFieldModifiedAt] = useState<
     Partial<Record<keyof RewriteEditBaseline, string>>
   >({});
+  const [undoHistory, setUndoHistory] = useState<RewriteUndoHistory>({});
+  const [originalSyncingFields, setOriginalSyncingFields] = useState<
+    Partial<Record<OriginalEditableField, boolean>>
+  >({});
+  const [originalSyncError, setOriginalSyncError] = useState("");
   const [showTemplates, setShowTemplates] = useState(false);
   const [generatingCover, setGeneratingCover] = useState(false);
   const [previewImage, setPreviewImage] = useState<{ src: string; title: string } | null>(null);
@@ -2003,6 +2103,7 @@ function RewriteRow({
   const displayTitle = sanitizeTitle(note.originalTitle || "");
   const originalTags = buildOriginalTags(result);
   const rewrittenTags = buildDisplayTags(result);
+  const originalNoteLink = buildOpenableNoteLink(note.noteLink);
   const allTemplateAssets = useMemo(
     () => getAllCoverTemplateAssets(customTemplates),
     [customTemplates]
@@ -2032,6 +2133,7 @@ function RewriteRow({
   const effectiveFieldModifiedAt = getEffectiveFieldModifiedAt(result);
   const isProcessing = result.status === "processing";
   const canEditGeneratedFields = result.status !== "processing";
+  const canEditOriginalFields = Boolean(note.recordId) && result.status !== "processing";
   const showInlineTitleLoading = isProcessing && !result.rewrittenTitle;
   const showInlineBodyLoading = isProcessing && !result.rewrittenBody;
   const showInlineCoverTextLoading = isProcessing && !result.rewrittenCoverText;
@@ -2050,7 +2152,7 @@ function RewriteRow({
   const activeSyncedCoverTextHeight = editingCoverText ? syncedCoverTextHeight : undefined;
   const activeSyncedBodyHeight = editingBody ? syncedBodyHeight : undefined;
   const hasAnyGeneratedFieldEditing =
-    editingCoverText || editingTitle || editingBody || editingRewrittenTags;
+    editingCoverText || editingTitle || editingBody || editingRewrittenTags || editingRemark;
 
   useEffect(() => {
     setExpanded(bulkExpanded);
@@ -2134,11 +2236,17 @@ function RewriteRow({
     setEditingRewrittenTags(true);
   }
 
+  function beginEditingRemark() {
+    setDraftOverride("rewriteRemark", result.rewriteRemark || "");
+    setEditingRemark(true);
+  }
+
   function closeGeneratedFieldEditors() {
     setEditingCoverText(false);
     setEditingTitle(false);
     setEditingBody(false);
     setEditingRewrittenTags(false);
+    setEditingRemark(false);
   }
 
   function clearGeneratedFieldDrafts() {
@@ -2146,30 +2254,113 @@ function RewriteRow({
     clearDraftOverride("rewrittenTitle");
     clearDraftOverride("rewrittenBody");
     clearDraftOverride("rewrittenTags");
+    clearDraftOverride("rewriteRemark");
   }
 
   function hasDraftOverride(field: keyof RewriteEditBaseline) {
     return Object.prototype.hasOwnProperty.call(draftOverrides, field);
   }
 
+  function hasUndoHistory(field: UndoableRewriteField) {
+    return (undoHistory[field]?.length || 0) > 0;
+  }
+
+  function pushUndoSnapshot<K extends UndoableRewriteField>(
+    field: K,
+    currentValue: RewriteEditBaseline[K],
+    nextValue: RewriteEditBaseline[K]
+  ) {
+    if (isTrackedEditValueEqual(currentValue, nextValue)) return;
+
+    setUndoHistory((current) => {
+      const history = current[field] || [];
+      return {
+        ...current,
+        [field]: [...history, cloneTrackedEditValue(currentValue)].slice(-20),
+      };
+    });
+  }
+
+  function popUndoSnapshot<K extends UndoableRewriteField>(field: K): RewriteEditBaseline[K] | undefined {
+    const history = undoHistory[field] || [];
+    const previousValue = history[history.length - 1];
+    if (typeof previousValue === "undefined") return undefined;
+
+    setUndoHistory((current) => {
+      const nextHistory = (current[field] || []).slice(0, -1);
+      const next = { ...current };
+      if (nextHistory.length > 0) {
+        next[field] = nextHistory as RewriteUndoHistory[K];
+      } else {
+        delete next[field];
+      }
+      return next;
+    });
+
+    return cloneTrackedEditValue(previousValue);
+  }
+
+  async function handleUndoRewriteField(field: UndoableRewriteField) {
+    if (!canEditGeneratedFields || generatingCover) return;
+
+    const previousValue = popUndoSnapshot(field);
+    if (typeof previousValue === "undefined") return;
+
+    if (field === "rewrittenCoverText") {
+      await rebuildCover({ rewrittenCoverText: normalizeSavedCoverText(String(previousValue)) });
+      return;
+    }
+
+    if (field === "rewrittenTags") {
+      applyManualUpdate({ rewrittenTags: [...(previousValue as string[])] });
+      return;
+    }
+
+    if (field === "rewriteRemark") {
+      applyManualUpdate({ rewriteRemark: String(previousValue || "") });
+      return;
+    }
+
+    if (field === "rewrittenBody") {
+      applyManualUpdate({
+        rewrittenBody: normalizeRewrittenBody(String(previousValue || ""), note.originalBody || ""),
+      });
+      return;
+    }
+
+    applyManualUpdate({ rewrittenTitle: String(previousValue || "") });
+  }
+
   function saveTitleField(value: string) {
+    pushUndoSnapshot("rewrittenTitle", result.rewrittenTitle, value);
     applyManualUpdate({ rewrittenTitle: value });
     clearDraftOverride("rewrittenTitle");
     setEditingTitle(false);
   }
 
   function saveBodyField(value: string) {
+    const nextBody = normalizeRewrittenBody(value, note.originalBody || "");
+    pushUndoSnapshot("rewrittenBody", result.rewrittenBody, nextBody);
     applyManualUpdate({
-      rewrittenBody: normalizeRewrittenBody(value, note.originalBody || ""),
+      rewrittenBody: nextBody,
     });
     clearDraftOverride("rewrittenBody");
     setEditingBody(false);
   }
 
   function saveRewrittenTagsField(nextTags: string[]) {
+    pushUndoSnapshot("rewrittenTags", rewrittenTags, nextTags);
     applyManualUpdate({ rewrittenTags: nextTags });
     clearDraftOverride("rewrittenTags");
     setEditingRewrittenTags(false);
+  }
+
+  function saveRemarkField(value: string) {
+    const nextRemark = normalizeSavedText(value);
+    pushUndoSnapshot("rewriteRemark", result.rewriteRemark || "", nextRemark);
+    applyManualUpdate({ rewriteRemark: nextRemark });
+    clearDraftOverride("rewriteRemark");
+    setEditingRemark(false);
   }
 
   async function saveCoverTextField(value: string) {
@@ -2181,6 +2372,7 @@ function RewriteRow({
       return;
     }
 
+    pushUndoSnapshot("rewrittenCoverText", result.rewrittenCoverText, nextValue);
     await rebuildCover({ rewrittenCoverText: nextValue });
   }
 
@@ -2189,6 +2381,7 @@ function RewriteRow({
     beginEditingTitle();
     beginEditingBody();
     beginEditingRewrittenTags();
+    beginEditingRemark();
   }
 
   async function handleToggleGeneratedFieldEditors() {
@@ -2203,7 +2396,9 @@ function RewriteRow({
     const shouldSaveTitle = editingTitle && hasDraftOverride("rewrittenTitle");
     const shouldSaveBody = editingBody && hasDraftOverride("rewrittenBody");
     const shouldSaveTags = editingRewrittenTags && hasDraftOverride("rewrittenTags");
-    const hasManualFieldsToSave = shouldSaveTitle || shouldSaveBody || shouldSaveTags;
+    const shouldSaveRemark = editingRemark && hasDraftOverride("rewriteRemark");
+    const hasManualFieldsToSave =
+      shouldSaveTitle || shouldSaveBody || shouldSaveTags || shouldSaveRemark;
 
     const nextTitle =
       typeof draftOverrides.rewrittenTitle === "string"
@@ -2218,6 +2413,10 @@ function RewriteRow({
     const nextTags = Array.isArray(draftOverrides.rewrittenTags)
       ? [...draftOverrides.rewrittenTags]
       : [...rewrittenTags];
+    const nextRemark =
+      typeof draftOverrides.rewriteRemark === "string"
+        ? normalizeSavedText(draftOverrides.rewriteRemark)
+        : result.rewriteRemark || "";
     const nextCoverText = normalizeSavedCoverText(
       typeof draftOverrides.rewrittenCoverText === "string"
         ? draftOverrides.rewrittenCoverText
@@ -2228,9 +2427,22 @@ function RewriteRow({
     clearGeneratedFieldDrafts();
 
     const manualUpdates: Partial<RewriteResult> = {};
-    if (shouldSaveTitle) manualUpdates.rewrittenTitle = nextTitle;
-    if (shouldSaveBody) manualUpdates.rewrittenBody = nextBody;
-    if (shouldSaveTags) manualUpdates.rewrittenTags = nextTags;
+    if (shouldSaveTitle) {
+      pushUndoSnapshot("rewrittenTitle", result.rewrittenTitle, nextTitle);
+      manualUpdates.rewrittenTitle = nextTitle;
+    }
+    if (shouldSaveBody) {
+      pushUndoSnapshot("rewrittenBody", result.rewrittenBody, nextBody);
+      manualUpdates.rewrittenBody = nextBody;
+    }
+    if (shouldSaveTags) {
+      pushUndoSnapshot("rewrittenTags", rewrittenTags, nextTags);
+      manualUpdates.rewrittenTags = nextTags;
+    }
+    if (shouldSaveRemark) {
+      pushUndoSnapshot("rewriteRemark", result.rewriteRemark || "", nextRemark);
+      manualUpdates.rewriteRemark = nextRemark;
+    }
 
     if (!shouldSaveCoverText) {
       if (hasManualFieldsToSave) {
@@ -2241,6 +2453,7 @@ function RewriteRow({
 
     setGeneratingCover(true);
     try {
+      pushUndoSnapshot("rewrittenCoverText", result.rewrittenCoverText, nextCoverText);
       const coverPayload = await buildRenderedCoverPayload({
         result,
         coverText: nextCoverText,
@@ -2269,6 +2482,7 @@ function RewriteRow({
       "rewrittenTitle",
       "rewrittenBody",
       "rewrittenTags",
+      "rewriteRemark",
       "rewrittenCoverText",
     ];
 
@@ -2311,6 +2525,58 @@ function RewriteRow({
 
   function handlePublishPersonaSelect(value: string) {
     applyManualUpdate({ publishPersona: selectedPublishPersona === value ? "" : value });
+  }
+
+  async function saveOriginalNoteField(
+    field: OriginalEditableField,
+    updates: Partial<RewriteResult["originalNote"]>
+  ) {
+    if (!canEditOriginalFields) return;
+
+    setOriginalSyncError("");
+    setOriginalSyncingFields((current) => ({ ...current, [field]: true }));
+
+    try {
+      await onOriginalNoteUpdate(updates);
+      if (field === "coverText") setEditingOriginalCoverText(false);
+      if (field === "title") setEditingOriginalTitle(false);
+      if (field === "body") setEditingOriginalBody(false);
+      if (field === "tags") setEditingOriginalTags(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "同步爆款库失败";
+      setOriginalSyncError(message);
+      window.alert(message);
+    } finally {
+      setOriginalSyncingFields((current) => {
+        const next = { ...current };
+        delete next[field];
+        return next;
+      });
+    }
+  }
+
+  function saveOriginalCoverTextField(value: string) {
+    void saveOriginalNoteField("coverText", {
+      coverText: normalizeSavedCoverText(value),
+    });
+  }
+
+  function saveOriginalTitleField(value: string) {
+    void saveOriginalNoteField("title", {
+      originalTitle: normalizeSavedText(value),
+    });
+  }
+
+  function saveOriginalBodyField(value: string) {
+    void saveOriginalNoteField("body", {
+      originalBody: normalizeRewrittenBody(value, note.originalBody || ""),
+    });
+  }
+
+  function saveOriginalTagsField(nextTags: string[]) {
+    void saveOriginalNoteField("tags", {
+      originalTags: nextTags,
+    });
   }
 
   function handleSyncedFieldHeightChange(field: SyncedMultilineField, nextHeight: number) {
@@ -2688,56 +2954,83 @@ function RewriteRow({
                   )}
                 </div>
 
-                <div>
-                  <p className="text-xs text-gray-400 mb-0.5">封面文案</p>
-                  <div
-                    className={clsx(
-                      "overflow-y-auto rounded-md",
-                      !activeSyncedCoverTextHeight && "max-h-32"
-                    )}
-                    style={
-                      activeSyncedCoverTextHeight ? { height: activeSyncedCoverTextHeight } : undefined
-                    }
-                  >
-                    <p className="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">
-                      {note.coverText || "—"}
-                    </p>
-                  </div>
-                </div>
+                {originalSyncError && (
+                  <p className="rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-500">
+                    {originalSyncError}
+                  </p>
+                )}
+
+                <EditableField
+                  key={`original-coverText-${editingOriginalCoverText ? "editing" : "view"}`}
+                  label="封面文案"
+                  value={note.coverText || ""}
+                  editing={editingOriginalCoverText}
+                  disabled={!canEditOriginalFields || Boolean(originalSyncingFields.coverText)}
+                  loading={Boolean(originalSyncingFields.coverText)}
+                  loadingLabel="封面文案同步中"
+                  onEdit={() => setEditingOriginalCoverText(true)}
+                  onSave={saveOriginalCoverTextField}
+                  onCancel={() => setEditingOriginalCoverText(false)}
+                  multiline
+                  multilineRows={4}
+                  syncedHeight={activeSyncedCoverTextHeight}
+                  onMultilineHeightChange={(height) => handleSyncedFieldHeightChange("coverText", height)}
+                  multilineMinHeightClassName="min-h-[84px]"
+                />
+
+                <EditableField
+                  key={`original-title-${editingOriginalTitle ? "editing" : "view"}`}
+                  label="标题"
+                  value={note.originalTitle || ""}
+                  editing={editingOriginalTitle}
+                  disabled={!canEditOriginalFields || Boolean(originalSyncingFields.title)}
+                  loading={Boolean(originalSyncingFields.title)}
+                  loadingLabel="标题同步中"
+                  onEdit={() => setEditingOriginalTitle(true)}
+                  onSave={saveOriginalTitleField}
+                  onCancel={() => setEditingOriginalTitle(false)}
+                  multiline={false}
+                />
+
+                <EditableField
+                  key={`original-body-${editingOriginalBody ? "editing" : "view"}`}
+                  label="正文"
+                  value={note.originalBody || ""}
+                  editing={editingOriginalBody}
+                  disabled={!canEditOriginalFields || Boolean(originalSyncingFields.body)}
+                  loading={Boolean(originalSyncingFields.body)}
+                  loadingLabel="正文同步中"
+                  onEdit={() => setEditingOriginalBody(true)}
+                  onSave={saveOriginalBodyField}
+                  onCancel={() => setEditingOriginalBody(false)}
+                  multiline
+                  syncedHeight={activeSyncedBodyHeight}
+                  onMultilineHeightChange={(height) => handleSyncedFieldHeightChange("body", height)}
+                />
+
+                <EditableTagsField
+                  key={`original-tags-${editingOriginalTags ? "editing" : "view"}`}
+                  label="标签"
+                  tags={originalTags}
+                  editing={editingOriginalTags}
+                  disabled={!canEditOriginalFields || Boolean(originalSyncingFields.tags)}
+                  onEdit={() => setEditingOriginalTags(true)}
+                  onSave={saveOriginalTagsField}
+                  onCancel={() => setEditingOriginalTags(false)}
+                  chipClassName="bg-blue-50 text-blue-500"
+                />
 
                 <div>
-                  <p className="text-xs text-gray-400 mb-0.5">标题</p>
-                  <p className="text-sm text-gray-800 font-medium">{note.originalTitle || "—"}</p>
-                </div>
-
-                <div>
-                  <p className="text-xs text-gray-400 mb-0.5">正文</p>
-                  <div
-                    className={clsx(
-                      "overflow-y-auto rounded-md",
-                      !activeSyncedBodyHeight && "max-h-40"
-                    )}
-                    style={activeSyncedBodyHeight ? { height: activeSyncedBodyHeight } : undefined}
-                  >
-                    <p className="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">
-                      {note.originalBody || "—"}
-                    </p>
-                  </div>
-                </div>
-
-                <div>
-                  <p className="mb-0.5 text-xs text-gray-400">标签</p>
-                  {originalTags.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {originalTags.map((tag) => (
-                        <span
-                          key={`original-tag-${tag}`}
-                          className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-500"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
+                  <p className="mb-0.5 text-xs text-gray-400">原笔记链接</p>
+                  {originalNoteLink ? (
+                    <a
+                      href={originalNoteLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-500 hover:underline"
+                    >
+                      打开原笔记详情 ↗
+                    </a>
                   ) : (
                     <p className="text-xs text-gray-800">—</p>
                   )}
@@ -2858,7 +3151,7 @@ function RewriteRow({
                         onClick={() => void handleToggleGeneratedFieldEditors()}
                         disabled={!canEditGeneratedFields || generatingCover}
                         title={
-                          hasAnyGeneratedFieldEditing ? "保存并关闭四个编辑框" : "一键打开四个编辑框"
+                          hasAnyGeneratedFieldEditing ? "保存并关闭编辑框" : "一键打开编辑框"
                         }
                         className={clsx(
                           "inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs transition-colors",
@@ -2986,6 +3279,7 @@ function RewriteRow({
                   </div>
 
                   <EditableField
+                    key={`rewritten-coverText-${editingCoverText ? "editing" : "view"}`}
                     label="二创封面文案"
                     value={result.rewrittenCoverText}
                     editing={editingCoverText}
@@ -2995,6 +3289,8 @@ function RewriteRow({
                     loadingLabel="二创封面文案生成中"
                     onEdit={beginEditingCoverText}
                     onRetry={() => handleRetryField("coverText")}
+                    canUndo={hasUndoHistory("rewrittenCoverText")}
+                    onUndo={() => handleUndoRewriteField("rewrittenCoverText")}
                     onDraftChange={(value) => setDraftOverride("rewrittenCoverText", value)}
                     onSave={(value) => void saveCoverTextField(value)}
                     onCancel={() => {
@@ -3009,6 +3305,7 @@ function RewriteRow({
                   />
 
                   <EditableField
+                    key={`rewritten-title-${editingTitle ? "editing" : "view"}`}
                     label="二创标题"
                     value={result.rewrittenTitle}
                     editing={editingTitle}
@@ -3018,6 +3315,8 @@ function RewriteRow({
                     loadingLabel="二创标题生成中"
                     onEdit={beginEditingTitle}
                     onRetry={() => handleRetryField("title")}
+                    canUndo={hasUndoHistory("rewrittenTitle")}
+                    onUndo={() => handleUndoRewriteField("rewrittenTitle")}
                     onDraftChange={(value) => setDraftOverride("rewrittenTitle", value)}
                     onSave={saveTitleField}
                     onCancel={() => {
@@ -3028,6 +3327,7 @@ function RewriteRow({
                   />
 
                   <EditableField
+                    key={`rewritten-body-${editingBody ? "editing" : "view"}`}
                     label="二创正文"
                     value={result.rewrittenBody}
                     editing={editingBody}
@@ -3037,6 +3337,8 @@ function RewriteRow({
                     loadingLabel="二创正文生成中"
                     onEdit={beginEditingBody}
                     onRetry={() => handleRetryField("body")}
+                    canUndo={hasUndoHistory("rewrittenBody")}
+                    onUndo={() => handleUndoRewriteField("rewrittenBody")}
                     onDraftChange={(value) => setDraftOverride("rewrittenBody", value)}
                     onSave={saveBodyField}
                     onCancel={() => {
@@ -3050,11 +3352,14 @@ function RewriteRow({
                 </>
 
                 <EditableTagsField
+                  key={`rewritten-tags-${editingRewrittenTags ? "editing" : "view"}`}
                   label="二创标签"
                   tags={rewrittenTags}
                   editing={editingRewrittenTags}
                   disabled={!canEditGeneratedFields}
                   onEdit={beginEditingRewrittenTags}
+                  canUndo={hasUndoHistory("rewrittenTags")}
+                  onUndo={() => handleUndoRewriteField("rewrittenTags")}
                   onDraftChange={(nextTags) => setDraftOverride("rewrittenTags", nextTags)}
                   onSave={saveRewrittenTagsField}
                   onCancel={() => {
@@ -3062,6 +3367,26 @@ function RewriteRow({
                     setEditingRewrittenTags(false);
                   }}
                   chipClassName="bg-red-50 text-red-500"
+                />
+
+                <EditableField
+                  key={`rewrite-remark-${editingRemark ? "editing" : "view"}`}
+                  label="备注"
+                  value={result.rewriteRemark || ""}
+                  editing={editingRemark}
+                  disabled={!canEditGeneratedFields}
+                  onEdit={beginEditingRemark}
+                  canUndo={hasUndoHistory("rewriteRemark")}
+                  onUndo={() => handleUndoRewriteField("rewriteRemark")}
+                  onDraftChange={(value) => setDraftOverride("rewriteRemark", value)}
+                  onSave={saveRemarkField}
+                  onCancel={() => {
+                    clearDraftOverride("rewriteRemark");
+                    setEditingRemark(false);
+                  }}
+                  multiline
+                  multilineRows={3}
+                  multilineMinHeightClassName="min-h-[76px]"
                 />
               </div>
             </div>
@@ -3248,6 +3573,8 @@ function EditableTagsField({
   tags,
   editing,
   onEdit,
+  canUndo = false,
+  onUndo,
   onDraftChange,
   onSave,
   onCancel,
@@ -3258,6 +3585,8 @@ function EditableTagsField({
   tags: string[];
   editing: boolean;
   onEdit: () => void;
+  canUndo?: boolean;
+  onUndo?: () => void | Promise<void>;
   onDraftChange?: (tags: string[]) => void;
   onSave: (tags: string[]) => void;
   onCancel: () => void;
@@ -3276,20 +3605,41 @@ function EditableTagsField({
       <div className="flex items-center justify-between mb-0.5">
         <p className="text-xs text-gray-400">{label}</p>
         {!editing && (
-          <button
-            onClick={() => {
-              if (disabled) return;
-              setDraft(formattedTags);
-              onEdit();
-            }}
-            disabled={disabled}
-            className={clsx(
-              "text-xs transition-colors",
-              disabled ? "cursor-not-allowed text-gray-300" : "text-gray-400 hover:text-gray-600"
+          <div className="flex items-center gap-1">
+            {onUndo && (
+              <button
+                onClick={() => {
+                  if (disabled || !canUndo) return;
+                  void onUndo();
+                }}
+                disabled={disabled || !canUndo}
+                title="撤回到上一步编辑"
+                aria-label={`撤回${label}到上一步编辑`}
+                className={clsx(
+                  "text-xs transition-colors",
+                  disabled || !canUndo
+                    ? "cursor-not-allowed text-gray-300"
+                    : "text-gray-400 hover:text-gray-600"
+                )}
+              >
+                <Undo2 className="h-3 w-3" />
+              </button>
             )}
-          >
-            <Edit3 className="w-3 h-3" />
-          </button>
+            <button
+              onClick={() => {
+                if (disabled) return;
+                setDraft(formattedTags);
+                onEdit();
+              }}
+              disabled={disabled}
+              className={clsx(
+                "text-xs transition-colors",
+                disabled ? "cursor-not-allowed text-gray-300" : "text-gray-400 hover:text-gray-600"
+              )}
+            >
+              <Edit3 className="w-3 h-3" />
+            </button>
+          </div>
         )}
       </div>
       {editing ? (
@@ -3389,6 +3739,8 @@ function EditableField({
   loadingLabel,
   onEdit,
   onRetry,
+  canUndo = false,
+  onUndo,
   onDraftChange,
   onSave,
   onCancel,
@@ -3407,6 +3759,8 @@ function EditableField({
   loadingLabel?: string;
   onEdit: () => void;
   onRetry?: () => void | Promise<void>;
+  canUndo?: boolean;
+  onUndo?: () => void | Promise<void>;
   onDraftChange?: (value: string) => void;
   onSave: (value: string) => void;
   onCancel: () => void;
@@ -3418,11 +3772,6 @@ function EditableField({
 }) {
   const [draft, setDraft] = useState(value);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-
-  useEffect(() => {
-    if (!editing) return;
-    setDraft(value);
-  }, [editing, value]);
 
   useEffect(() => {
     if (!editing || !multiline || !onMultilineHeightChange) return;
@@ -3452,6 +3801,25 @@ function EditableField({
         <p className="text-xs text-gray-400">{label}</p>
         {!editing && (
           <div className="flex items-center gap-1">
+            {onUndo && (
+              <button
+                onClick={() => {
+                  if (disabled || retrying || !canUndo) return;
+                  void onUndo();
+                }}
+                disabled={retrying || disabled || !canUndo}
+                title="撤回到上一步编辑"
+                aria-label={`撤回${label}到上一步编辑`}
+                className={clsx(
+                  "text-xs transition-colors",
+                  retrying || disabled || !canUndo
+                    ? "cursor-not-allowed text-gray-300"
+                    : "text-gray-400 hover:text-gray-600"
+                )}
+              >
+                <Undo2 className="h-3 w-3" />
+              </button>
+            )}
             {onRetry && (
               <button
                 onClick={() => void onRetry()}

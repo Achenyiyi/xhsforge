@@ -52,6 +52,7 @@ const REWRITE_TABLE_FIELDS = [
   { field_name: "二创标题", type: FIELD_TYPE_TEXT },
   { field_name: "二创正文", type: FIELD_TYPE_TEXT },
   { field_name: "二创标签", type: FIELD_TYPE_TEXT },
+  { field_name: "备注", type: FIELD_TYPE_TEXT },
   { field_name: "发布人设", type: FIELD_TYPE_SINGLE_SELECT },
   { field_name: COMBINED_REPLACE_INFO_FIELD_NAME, type: FIELD_TYPE_TEXT },
   { field_name: "笔记链接", type: FIELD_TYPE_TEXT },
@@ -508,6 +509,12 @@ async function ensureRewriteTable() {
     FIELD_TYPE_SINGLE_SELECT,
     "二创库字段「发布人设」当前不是单选字段，无法写入人设。请在飞书里把它改成单选字段。"
   );
+  assertFieldTypeOrThrow(
+    fieldTypeMap,
+    "备注",
+    FIELD_TYPE_TEXT,
+    "二创库字段「备注」当前不是文本字段，无法写入备注。请在飞书里把它改成单行文本或多行文本。"
+  );
   assertFieldTypeOrThrow(fieldTypeMap, REFERENCE_COVER_FIELD_NAME, FIELD_TYPE_ATTACHMENT);
   assertFieldTypeOrThrow(fieldTypeMap, "二创封面", FIELD_TYPE_ATTACHMENT);
 
@@ -558,6 +565,12 @@ function buildRewriteTableFields(params: {
   setIfFieldHasValue(fields, targetFieldTypeMap, "二创标题", result.rewrittenTitle);
   setIfFieldHasValue(fields, targetFieldTypeMap, "二创正文", result.rewrittenBody);
   setIfFieldHasValue(fields, targetFieldTypeMap, "二创标签", formatTagsForStorage(inheritedTags));
+  setIfFieldHasTextPreserveWhitespace(
+    fields,
+    targetFieldTypeMap,
+    "备注",
+    result.rewriteRemark || ""
+  );
   setIfFieldHasTextPreserveWhitespace(
     fields,
     targetFieldTypeMap,

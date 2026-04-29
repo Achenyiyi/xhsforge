@@ -23,6 +23,7 @@ type RewriteSnapshot = {
   rewriteCover: string;
   rewriteCoverText: string;
   rewriteTags: string[];
+  rewriteRemark: string;
   publishPersona: string;
 };
 
@@ -162,6 +163,7 @@ function buildRewriteSnapshot(fields: Record<string, unknown>): RewriteSnapshot 
     rewriteCover: toAttachmentUrl(fields["二创封面"]),
     rewriteCoverText: toStr(fields["二创封面文案"]),
     rewriteTags,
+    rewriteRemark: toStr(fields["备注"]),
     publishPersona: toStr(fields["发布人设"]),
   };
 }
@@ -296,6 +298,7 @@ export async function GET() {
           rewriteTagsFromCollect.length > 0
             ? rewriteTagsFromCollect
             : rewriteSnapshot?.rewriteTags || [],
+        rewriteRemark: rewriteSnapshot?.rewriteRemark || "",
         publishPersona:
           toStr(f["发布人设"]) ||
           rewriteSnapshot?.publishPersona ||
