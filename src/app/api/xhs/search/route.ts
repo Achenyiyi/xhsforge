@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { SearchFilters, XHSNote } from "@/types";
 import {
   buildSearchNoteLink,
-  dedupeTags,
-  extractTagsFromText,
+  extractTagsFromKnownFields,
   pickDetailImageUrl,
   pickSearchImageUrl,
   sanitizeTitle,
@@ -234,15 +233,7 @@ async function mapWithConcurrency<T, R>(
 }
 
 function extractTags(note: Record<string, unknown>) {
-  const title = sanitizeTitle(String(note.title || ""));
-  const desc = String(note.desc || "");
-  const sources = [
-    title,
-    desc,
-    String((note.tag_info as Record<string, unknown> | undefined)?.title || ""),
-  ];
-
-  return dedupeTags(extractTagsFromText(sources.filter(Boolean).join(" ")));
+  return extractTagsFromKnownFields(note);
 }
 
 function extractAppNotes(items: Record<string, unknown>[]): XHSNote[] {
@@ -430,14 +421,7 @@ async function resolveSearchLink(link: string) {
 }
 
 function extractDetailTags(noteCard: Record<string, unknown>) {
-  const tagList = Array.isArray(noteCard.tag_list)
-    ? (noteCard.tag_list as Array<Record<string, unknown>>)
-    : [];
-
-  const tags = dedupeTags(tagList.map((tag) => toStringValue(tag.name)));
-  if (tags.length > 0) return tags;
-
-  return extractTagsFromText(`${toStringValue(noteCard.title)} ${toStringValue(noteCard.desc)}`);
+  return extractTagsFromKnownFields(noteCard);
 }
 
 function toIsoString(timestamp: unknown): string {

@@ -67,7 +67,7 @@ export default function Sidebar() {
             <div className="mt-3 flex items-center gap-2">
               <span className="h-px flex-1 bg-gradient-to-r from-orange-400/80 to-transparent" />
               <p className="rounded-full border border-orange-300/25 bg-white/5 px-2.5 py-1 text-[10px] font-medium tracking-[0.34em] text-orange-100/80 backdrop-blur-sm">
-                采集 · 二创
+                采集 · 二创 · 入库
               </p>
             </div>
           </div>

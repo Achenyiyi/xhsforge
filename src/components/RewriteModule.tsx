@@ -44,7 +44,7 @@ import {
 import { usePromptsSettingsStore } from "@/store/promptsSettingsStore";
 import { dedupeTags, extractTagsFromText, sanitizeTitle } from "@/lib/xhs";
 import { buildOpenableNoteLink } from "@/lib/xhsLink";
-import { RECRUITMENT_DIRECTION_OPTIONS } from "@/types";
+import { PUBLISH_PERSONA_OPTIONS, RECRUITMENT_DIRECTION_OPTIONS } from "@/types";
 import type { RewriteEditBaseline, RewriteResult } from "@/types";
 import Image from "next/image";
 
@@ -79,8 +79,6 @@ const LIBRARY_SCOPES: Array<{ scope: ReplaceLibraryScope; label: string; desc: s
   { scope: "body", label: "正文词库", desc: "只作用在正文生成" },
   { scope: "cover", label: "封面文案词库", desc: "只作用在封面文案生成" },
 ];
-
-const PUBLISH_PERSONA_OPTIONS = ["主播", "HR", "中立", "运营主管"] as const;
 
 async function callRewriteApi(payload: Record<string, unknown> & { signal?: AbortSignal }) {
   const { signal, ...body } = payload;
@@ -3177,6 +3175,8 @@ function RewriteRow({
                   </p>
                 )}
 
+                <div className="h-7" aria-hidden="true" />
+
                 <EditableField
                   key={`original-coverText-${editingOriginalCoverText ? "editing" : "view"}`}
                   label="封面文案"
@@ -3310,7 +3310,7 @@ function RewriteRow({
                           )}
                         </div>
                       </div>
-                      <div className="min-w-0 flex-1 space-y-2">
+                      <div className="min-w-0 flex-1 space-y-1">
                         <div className="flex flex-wrap gap-1">
                           <label
                             className={clsx(
@@ -3353,22 +3353,24 @@ function RewriteRow({
                           {showTemplates ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                           {showTemplates ? "收起模板库" : "展开模板库"}
                         </button>
+                        <div className="space-y-0.5">
+                          <SingleSelectChecklist
+                            label="发布人设："
+                            options={PUBLISH_PERSONA_OPTIONS}
+                            value={selectedPublishPersona}
+                            onSelect={handlePublishPersonaSelect}
+                            disabled={isProcessing}
+                          />
+                          <SingleSelectChecklist
+                            label="招聘方向："
+                            options={RECRUITMENT_DIRECTION_OPTIONS}
+                            value={selectedRecruitmentDirection}
+                            onSelect={handleRecruitmentDirectionSelect}
+                            disabled={isProcessing}
+                          />
+                        </div>
                       </div>
                     </div>
-                    <SingleSelectChecklist
-                      label="发布人设："
-                      options={PUBLISH_PERSONA_OPTIONS}
-                      value={selectedPublishPersona}
-                      onSelect={handlePublishPersonaSelect}
-                      disabled={isProcessing}
-                    />
-                    <SingleSelectChecklist
-                      label="招聘方向："
-                      options={RECRUITMENT_DIRECTION_OPTIONS}
-                      value={selectedRecruitmentDirection}
-                      onSelect={handleRecruitmentDirectionSelect}
-                      disabled={isProcessing}
-                    />
 
                     <div className="flex justify-end">
                       <button
@@ -3755,8 +3757,8 @@ function SingleSelectChecklist({
   disabled?: boolean;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-2 pt-0.5">
-      <span className="min-w-[68px] text-xs font-medium text-gray-500">{label}</span>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+      <span className="text-[13px] font-semibold text-gray-500">{label}</span>
       {options.map((option) => {
         const selected = option === value;
 
@@ -3770,23 +3772,23 @@ function SingleSelectChecklist({
             }}
             disabled={disabled}
             className={clsx(
-              "inline-flex min-w-[88px] items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-medium transition-colors",
+              "inline-flex items-center gap-1.5 rounded-md px-1 py-0.5 text-[13px] font-medium transition-colors",
               selected
-                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                : "border-stone-200 bg-stone-50 text-stone-500 hover:border-stone-300 hover:bg-white",
+                ? "text-gray-600"
+                : "text-gray-500 hover:text-gray-700",
               disabled && "cursor-not-allowed opacity-60"
             )}
             title={selected ? `取消${option}` : `设为${option}`}
           >
             <span
               className={clsx(
-                "flex h-3.5 w-3.5 items-center justify-center rounded-[4px] border",
+                "flex h-4 w-4 items-center justify-center rounded-[5px] border transition-colors",
                 selected
-                  ? "border-emerald-500 bg-emerald-500 text-white"
-                  : "border-stone-300 bg-white text-transparent"
+                  ? "border-red-500 bg-red-500 text-white shadow-sm"
+                  : "border-slate-300 bg-white text-transparent"
               )}
             >
-              <Check className="h-2.5 w-2.5" strokeWidth={3} />
+              <Check className="h-3 w-3" strokeWidth={3} />
             </span>
             <span>{option}</span>
           </button>

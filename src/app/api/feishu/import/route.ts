@@ -13,6 +13,7 @@ import {
 } from "@/lib/image";
 import {
   dedupeTags,
+  extractTagsFromKnownFields,
   extractTagsFromText,
   formatTagsForStorage,
   pickDetailImageUrl,
@@ -95,7 +96,7 @@ function shouldFetchNoteDetail(note: XHSNote): boolean {
   const hasTags = dedupeTags(note.tags || []).length > 0;
   const hasCover = Boolean(note.cover || note.imageList?.[0]);
 
-  return !title || !hasCover || (!desc && !hasTags);
+  return !title || !hasCover || !desc || !hasTags;
 }
 
 function sleep(ms: number) {
@@ -202,14 +203,7 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = XHS_
 }
 
 function extractTagsFromDetail(noteCard: Record<string, unknown>): string[] {
-  const tagList = Array.isArray(noteCard.tag_list)
-    ? (noteCard.tag_list as Array<Record<string, unknown>>)
-    : [];
-
-  const detailTags = dedupeTags(tagList.map((tag) => toString(tag.name)));
-  if (detailTags.length > 0) return detailTags;
-
-  return extractTagsFromText(`${toString(noteCard.title)} ${toString(noteCard.desc)}`);
+  return extractTagsFromKnownFields(noteCard);
 }
 
 function toIsoString(timestamp: unknown): string {
@@ -280,6 +274,11 @@ async function fetchNoteDetail(noteId: string): Promise<Record<string, unknown> 
 }
 
 function buildFallbackImportNote(note: XHSNote): XHSNote {
+  const fallbackTags = dedupeTags([
+    ...(note.tags || []),
+    ...extractTagsFromText(`${note.title || ""} ${note.desc || ""}`),
+  ]);
+
   return {
     ...note,
     title: sanitizeTitle(note.title),
@@ -287,7 +286,7 @@ function buildFallbackImportNote(note: XHSNote): XHSNote {
     cover: note.cover || note.imageList?.[0] || "",
     imageList: note.imageList || [],
     noteLink: normalizeNoteLink(note.noteLink, note.id),
-    tags: dedupeTags(note.tags || []),
+    tags: fallbackTags,
   };
 }
 
@@ -343,7 +342,11 @@ async function prepareImportNote(note: XHSNote): Promise<XHSNote> {
         .filter(Boolean)
     : [];
   const detailNoteId = toString(noteCard.note_id) || note.id;
-  const mergedTags = dedupeTags([...(note.tags || []), ...extractTagsFromDetail(noteCard)]);
+  const mergedTags = dedupeTags([
+    ...(note.tags || []),
+    ...extractTagsFromText(`${note.title || ""} ${note.desc || ""}`),
+    ...extractTagsFromDetail(noteCard),
+  ]);
 
   return {
     ...note,
@@ -438,6 +441,10 @@ export async function POST(req: NextRequest) {
     assertFieldTypeIfPresent(fieldTypeMap, "笔记链接", FIELD_TYPE_URL);
     assertFieldTypeIfPresent(fieldTypeMap, "封面", FIELD_TYPE_ATTACHMENT);
     assertFieldTypeIfPresent(fieldTypeMap, "封面文案", FIELD_TYPE_TEXT);
+    assertFieldTypeInIfPresent(fieldTypeMap, "发布人设", [
+      FIELD_TYPE_TEXT,
+      FIELD_TYPE_SINGLE_SELECT,
+    ]);
     assertFieldTypeInIfPresent(fieldTypeMap, "招聘方向", [
       FIELD_TYPE_TEXT,
       FIELD_TYPE_SINGLE_SELECT,
@@ -519,6 +526,7 @@ export async function POST(req: NextRequest) {
       setIfFieldExists(fields, fieldTypeMap, "转发数", note.shareCount || 0);
       setIfFieldHasValue(fields, fieldTypeMap, "封面文案", normalizedCoverText);
       setIfFieldHasValue(fields, fieldTypeMap, "标签", formatTagsForStorage(note.tags || []));
+      setIfFieldHasValue(fields, fieldTypeMap, "发布人设", note.publishPersona);
       setIfFieldHasValue(fields, fieldTypeMap, "招聘方向", note.recruitmentDirection);
       setIfFieldExists(fields, fieldTypeMap, "已二创", false);
 

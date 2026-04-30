@@ -1,5 +1,7 @@
 export const RECRUITMENT_DIRECTION_OPTIONS = ["主播", "助理"] as const;
 export type RecruitmentDirection = (typeof RECRUITMENT_DIRECTION_OPTIONS)[number];
+export const PUBLISH_PERSONA_OPTIONS = ["主播", "HR", "中立", "运营主管"] as const;
+export type PublishPersona = (typeof PUBLISH_PERSONA_OPTIONS)[number];
 
 // 小红书笔记基础类型
 export interface XHSNote {
@@ -17,6 +19,7 @@ export interface XHSNote {
   author: string;
   noteLink: string;
   coverText?: string; // 封面文案（从图片提取）
+  publishPersona?: string; // 发布人设
   recruitmentDirection?: string; // 招聘方向
 }
 

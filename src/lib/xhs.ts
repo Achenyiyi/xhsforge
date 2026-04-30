@@ -13,6 +13,10 @@ function toString(value: unknown): string {
   return String(value);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 export function toNumber(value: unknown, fallback = 0): number {
   if (value === null || value === undefined || value === "") return fallback;
   const parsed = typeof value === "number" ? value : Number(value);
@@ -58,6 +62,50 @@ export function formatTagsForStorage(tags: string[]): string {
 export function extractTagsFromText(text: string): string[] {
   const matches = text.match(TOPIC_TAG_PATTERN) || [];
   return dedupeTags(matches);
+}
+
+export function extractTagsFromKnownFields(value: Record<string, unknown>): string[] {
+  const textSources = [
+    toString(value.title),
+    toString(value.desc),
+    isRecord(value.tag_info) ? toString(value.tag_info.title) : "",
+  ];
+  const directTags: string[] = [];
+
+  function collectTagList(candidate: unknown) {
+    if (!Array.isArray(candidate)) return;
+
+    for (const item of candidate) {
+      if (typeof item === "string") {
+        directTags.push(item);
+        continue;
+      }
+
+      if (!isRecord(item)) continue;
+      const name = toString(item.name) || toString(item.tag_name) || toString(item.tagName);
+      if (name) directTags.push(name);
+      const title = toString(item.title);
+      if (title) textSources.push(title);
+    }
+  }
+
+  collectTagList(value.tag_list);
+  collectTagList(value.tags);
+
+  if (isRecord(value.tag_info)) {
+    const tagInfoName =
+      toString(value.tag_info.name) ||
+      toString(value.tag_info.tag_name) ||
+      toString(value.tag_info.tagName);
+    if (tagInfoName) directTags.push(tagInfoName);
+    collectTagList(value.tag_info.tag_list);
+    collectTagList(value.tag_info.tags);
+  }
+
+  return dedupeTags([
+    ...directTags,
+    ...extractTagsFromText(textSources.filter(Boolean).join(" ")),
+  ]);
 }
 
 export function stripTagsFromText(text: string): string {

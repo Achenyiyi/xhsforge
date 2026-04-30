@@ -16,8 +16,15 @@ import {
 import clsx from "clsx";
 import { useAppStore } from "@/store/appStore";
 import EngagementStats from "@/components/EngagementStats";
-import { RECRUITMENT_DIRECTION_OPTIONS } from "@/types";
-import type { RecruitmentDirection, XHSNote, SearchFilters, SearchHistory, SearchMode } from "@/types";
+import { PUBLISH_PERSONA_OPTIONS, RECRUITMENT_DIRECTION_OPTIONS } from "@/types";
+import type {
+  PublishPersona,
+  RecruitmentDirection,
+  XHSNote,
+  SearchFilters,
+  SearchHistory,
+  SearchMode,
+} from "@/types";
 import Image from "next/image";
 import { buildOpenableNoteLink, extractXhsLinksFromText } from "@/lib/xhsLink";
 
@@ -85,6 +92,9 @@ export default function CrawlModule() {
   const [importing, setImporting] = useState(false);
   const [importSuccess, setImportSuccess] = useState("");
   const [showFilters, setShowFilters] = useState(false);
+  const [publishPersonaByNoteId, setPublishPersonaByNoteId] = useState<
+    Record<string, string | null>
+  >({});
   const [recruitmentDirectionByNoteId, setRecruitmentDirectionByNoteId] = useState<
     Record<string, string | null>
   >({});
@@ -108,6 +118,7 @@ export default function CrawlModule() {
     setCrawlResults([]);
     setActiveSearchHistoryId(null);
     setSelectedIds(new Set());
+    setPublishPersonaByNoteId({});
     setRecruitmentDirectionByNoteId({});
 
     try {
@@ -196,6 +207,7 @@ export default function CrawlModule() {
       .filter((note) => selectedIds.has(note.id))
       .map((note) => ({
         ...note,
+        publishPersona: getSelectedPublishPersona(note),
         recruitmentDirection: getSelectedRecruitmentDirection(note),
       }));
     if (toImport.length === 0) return;
@@ -255,6 +267,7 @@ export default function CrawlModule() {
     setError(null);
     setWarning("");
     setSelectedIds(new Set());
+    setPublishPersonaByNoteId({});
     setRecruitmentDirectionByNoteId({});
     setActiveSearchHistoryId(history.id);
     setSearchMode(history.mode);
@@ -269,12 +282,33 @@ export default function CrawlModule() {
     setNoteLinksInput((history.noteLinks || []).join("\n"));
   }
 
+  function getSelectedPublishPersona(note: XHSNote) {
+    if (Object.prototype.hasOwnProperty.call(publishPersonaByNoteId, note.id)) {
+      return publishPersonaByNoteId[note.id] || "";
+    }
+
+    return note.publishPersona || "";
+  }
+
   function getSelectedRecruitmentDirection(note: XHSNote) {
     if (Object.prototype.hasOwnProperty.call(recruitmentDirectionByNoteId, note.id)) {
       return recruitmentDirectionByNoteId[note.id] || "";
     }
 
     return note.recruitmentDirection || "";
+  }
+
+  function updatePublishPersona(noteId: string, value: PublishPersona, currentValue: string) {
+    setPublishPersonaByNoteId((current) => {
+      const next = { ...current };
+      if (currentValue === value) {
+        next[noteId] = null;
+        return next;
+      }
+
+      next[noteId] = value;
+      return next;
+    });
   }
 
   function updateRecruitmentDirection(
@@ -574,14 +608,18 @@ export default function CrawlModule() {
                 </div>
               </div>
 
-              <div className="p-4 grid grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2.5">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,210px))] justify-start gap-3 p-4">
                 {displayResults.map((note) => (
                   <NoteCard
                     key={note.id}
                     note={note}
                     selected={selectedIds.has(note.id)}
+                    publishPersona={getSelectedPublishPersona(note)}
                     recruitmentDirection={getSelectedRecruitmentDirection(note)}
                     onToggle={() => toggleSelect(note.id)}
+                    onPublishPersonaChange={(value, currentValue) =>
+                      updatePublishPersona(note.id, value, currentValue)
+                    }
                     onRecruitmentDirectionChange={(value, currentValue) =>
                       updateRecruitmentDirection(note.id, value, currentValue)
                     }
@@ -661,14 +699,18 @@ export default function CrawlModule() {
 function NoteCard({
   note,
   selected,
+  publishPersona,
   recruitmentDirection,
   onToggle,
+  onPublishPersonaChange,
   onRecruitmentDirectionChange,
 }: {
   note: XHSNote;
   selected: boolean;
+  publishPersona: string;
   recruitmentDirection: string;
   onToggle: () => void;
+  onPublishPersonaChange: (value: PublishPersona, currentValue: string) => void;
   onRecruitmentDirectionChange: (value: RecruitmentDirection, currentValue: string) => void;
 }) {
   const noteDetailLink = buildOpenableNoteLink(note.noteLink, note.id);
@@ -686,22 +728,22 @@ function NoteCard({
         rel="noopener noreferrer"
         className="block"
       >
-        <div className="relative aspect-[3/4] bg-gray-100">
+        <div className="relative aspect-[4/3] bg-gray-100">
           {note.cover ? (
             <Image
               src={`/api/proxy-image?url=${encodeURIComponent(note.cover)}`}
               alt={note.title || "小红书笔记"}
               fill
-              sizes="(max-width: 1280px) 25vw, 16vw"
-              className="object-cover"
+              sizes="210px"
+              className="object-contain"
               unoptimized
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-gray-300 text-xs">无封面</div>
           )}
         </div>
-        <div className="p-2">
-          <p className="text-[12px] font-medium text-gray-800 line-clamp-2 leading-4 min-h-8">
+        <div className="px-2 py-1.5">
+          <p className="h-4 truncate text-[12px] font-medium leading-4 text-gray-800">
             {note.title || "无标题"}
           </p>
           <EngagementStats
@@ -710,15 +752,16 @@ function NoteCard({
             commentCount={note.commentCount}
             shareCount={note.shareCount}
             compact
+            noWrap
             className="mt-1.5"
           />
         </div>
       </a>
 
-      <div className="px-2 pb-2">
+      <div className="space-y-1 px-2 pb-2">
         <div className="flex items-center gap-1.5">
-          <span className="text-[11px] text-gray-400">招聘方向</span>
-          <div className="flex overflow-hidden rounded-md border border-gray-200 bg-gray-50">
+          <span className="w-11 shrink-0 text-[11px] text-gray-400">招聘方向</span>
+          <div className="inline-flex overflow-hidden rounded-md border border-gray-200 bg-gray-50">
             {RECRUITMENT_DIRECTION_OPTIONS.map((option) => {
               const active = recruitmentDirection === option;
 
@@ -728,7 +771,33 @@ function NoteCard({
                   type="button"
                   onClick={() => onRecruitmentDirectionChange(option, recruitmentDirection)}
                   className={clsx(
-                    "px-2 py-1 text-[11px] font-medium transition-colors",
+                    "px-2 py-0.5 text-[11px] font-medium transition-colors",
+                    active
+                      ? "bg-red-500 text-white"
+                      : "text-gray-500 hover:bg-white hover:text-gray-700"
+                  )}
+                  title={active ? `取消${option}` : `设为${option}`}
+                >
+                  {option}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <span className="w-11 shrink-0 text-[11px] text-gray-400">发布人设</span>
+          <div className="inline-flex overflow-hidden rounded-md border border-gray-200 bg-gray-50">
+            {PUBLISH_PERSONA_OPTIONS.map((option) => {
+              const active = publishPersona === option;
+
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => onPublishPersonaChange(option, publishPersona)}
+                  className={clsx(
+                    "px-1 py-0.5 text-[10px] font-medium transition-colors",
                     active
                       ? "bg-red-500 text-white"
                       : "text-gray-500 hover:bg-white hover:text-gray-700"
