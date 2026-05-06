@@ -693,16 +693,22 @@ function RecordRow({
 
       {expanded && (
         <div className="mt-3 ml-8 pl-8 border-l-2 border-gray-100 space-y-2">
+          {record.coverText && (
+            <div>
+              <p className="text-xs font-medium text-gray-500 mb-1">封面文案</p>
+              <p className="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">{record.coverText}</p>
+            </div>
+          )}
+          {displayTitle && (
+            <div>
+              <p className="text-xs font-medium text-gray-500 mb-1">标题</p>
+              <p className="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">{displayTitle}</p>
+            </div>
+          )}
           {record.originalBody && (
             <div>
               <p className="text-xs font-medium text-gray-500 mb-1">正文</p>
               <p className="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">{record.originalBody}</p>
-            </div>
-          )}
-          {record.coverText && (
-            <div>
-              <p className="text-xs font-medium text-gray-500 mb-1">封面文案</p>
-              <p className="text-xs text-gray-700">{record.coverText}</p>
             </div>
           )}
           {displayTags.length > 0 && (
