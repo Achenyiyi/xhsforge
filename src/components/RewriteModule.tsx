@@ -1644,6 +1644,7 @@ export default function RewriteModule() {
 
   const doneCount = rewriteResults.filter((item) => item.status === "done").length;
   const processingCount = rewriteResults.filter((item) => item.status === "processing").length;
+  const stoppedCount = rewriteResults.filter((item) => item.status === "stopped").length;
   const editableGeneratedCount = rewriteResults.filter((item) => item.status !== "processing").length;
   const selectedDoneCount = rewriteResults.filter(
     (item) => selectedRewriteIds.has(item.id) && item.status === "done"
@@ -1657,6 +1658,28 @@ export default function RewriteModule() {
       setBulkExpandVersion((version) => version + 1);
       return next;
     });
+  }
+
+  function handleToggleAllRewriteProcessing() {
+    if (processingCount > 0) {
+      const processingResults = rewriteResults.filter((item) => item.status === "processing");
+      processingResults.forEach((item) => stopRewrite(item.id));
+      setSaveMsg(`已停止 ${processingResults.length} 条生成中的笔记`);
+      window.setTimeout(() => setSaveMsg(""), 2000);
+      return;
+    }
+
+    const stoppedResults = rewriteResults.filter((item) => item.status === "stopped");
+    if (stoppedResults.length === 0) return;
+
+    stoppedResults.forEach((item) => {
+      updateRewriteResult(item.id, {
+        status: "pending",
+        errorMsg: undefined,
+      });
+    });
+    setSaveMsg(`已继续生成 ${stoppedResults.length} 条已停止的笔记`);
+    window.setTimeout(() => setSaveMsg(""), 2000);
   }
 
   return (
@@ -2138,13 +2161,37 @@ export default function RewriteModule() {
         ) : (
           <>
             <div className="sticky top-0 z-20 flex justify-end px-3 pb-2 pt-3 bg-gradient-to-b from-white via-white/95 to-white/0">
-              <button
-                onClick={handleToggleBulkExpanded}
-                className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white/90 px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm transition-colors hover:border-gray-300 hover:bg-white hover:text-gray-800"
-              >
-                {bulkExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                {bulkExpanded ? "全部收起" : "全部展开"}
-              </button>
+              <div className="flex items-center gap-2">
+                {(processingCount > 0 || stoppedCount > 0) && (
+                  <button
+                    type="button"
+                    onClick={handleToggleAllRewriteProcessing}
+                    className={clsx(
+                      "inline-flex items-center gap-1.5 rounded-full border bg-white/90 px-3 py-1.5 text-xs font-medium shadow-sm transition-colors hover:bg-white",
+                      processingCount > 0
+                        ? "border-amber-200 text-amber-500 hover:border-amber-300 hover:text-amber-600"
+                        : "border-sky-200 text-sky-500 hover:border-sky-300 hover:text-sky-600"
+                    )}
+                    title={processingCount > 0 ? "停止所有生成中的笔记" : "继续所有已停止的笔记"}
+                    aria-label={processingCount > 0 ? "停止所有生成中的笔记" : "继续所有已停止的笔记"}
+                  >
+                    {processingCount > 0 ? (
+                      <Square className="h-3.5 w-3.5 fill-current" />
+                    ) : (
+                      <Play className="h-3.5 w-3.5 fill-current" />
+                    )}
+                    {processingCount > 0 ? "一键停止" : "一键继续"}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleToggleBulkExpanded}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white/90 px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm transition-colors hover:border-gray-300 hover:bg-white hover:text-gray-800"
+                >
+                  {bulkExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  {bulkExpanded ? "全部收起" : "全部展开"}
+                </button>
+              </div>
             </div>
             <div className="space-y-3 px-3 pb-3">
               {rewriteResults.map((result, index) => (

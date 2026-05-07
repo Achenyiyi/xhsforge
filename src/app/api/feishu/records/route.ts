@@ -73,6 +73,26 @@ function toTimestamp(v: unknown): number {
   return 0;
 }
 
+function toBool(v: unknown): boolean {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v !== 0;
+  if (typeof v === "string") {
+    const normalized = v.trim().toLowerCase();
+    if (!normalized) return false;
+    if (["false", "0", "no", "off", "否", "不是", "未勾选"].includes(normalized)) {
+      return false;
+    }
+    return true;
+  }
+  if (Array.isArray(v)) return v.length > 0;
+  if (v && typeof v === "object") {
+    const obj = v as Record<string, unknown>;
+    if (typeof obj.checked === "boolean") return obj.checked;
+    if (typeof obj.value === "boolean") return obj.value;
+  }
+  return Boolean(v);
+}
+
 function normalizeNoteLink(link: string): string {
   const openableLink = buildOpenableNoteLink(link);
   if (!openableLink) return "";
@@ -309,7 +329,8 @@ export async function GET() {
           toStr(f["招聘方向"]) ||
           rewriteSnapshot?.recruitmentDirection ||
           "",
-        hasRewritten: Boolean(f["已二创"]) || Boolean(rewriteSnapshot),
+        isTestPost: toBool(f["测试"]),
+        hasRewritten: toBool(f["已二创"]) || Boolean(rewriteSnapshot),
         // 标题和正文字段（实际字段名已确认）
         originalTitle: toStr(f["标题"]),
         originalBody: stripTagsFromText(toStr(f["正文"])),

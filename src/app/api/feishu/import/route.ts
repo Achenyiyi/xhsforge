@@ -528,6 +528,7 @@ export async function POST(req: NextRequest) {
       setIfFieldHasValue(fields, fieldTypeMap, "标签", formatTagsForStorage(note.tags || []));
       setIfFieldHasValue(fields, fieldTypeMap, "发布人设", note.publishPersona);
       setIfFieldHasValue(fields, fieldTypeMap, "招聘方向", note.recruitmentDirection);
+      setIfFieldExists(fields, fieldTypeMap, "测试", Boolean(note.isTestPost));
       setIfFieldExists(fields, fieldTypeMap, "已二创", false);
 
       if (fieldTypeMap.has("笔记链接") && note.noteLink) {

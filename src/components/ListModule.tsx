@@ -138,6 +138,7 @@ export default function ListModule() {
   const [publishPersonaFilter, setPublishPersonaFilter] = useState<
     "" | Extract<PublishPersona, "主播" | "HR">
   >("");
+  const [testPostFilter, setTestPostFilter] = useState(false);
   const initRef = useRef(false);
   const titleSearchQuery = titleSearchKeyword.trim().toLowerCase();
 
@@ -161,9 +162,19 @@ export default function ListModule() {
         return false;
       }
 
+      if (testPostFilter && !record.isTestPost) {
+        return false;
+      }
+
       return true;
     });
-  }, [collectRecords, publishPersonaFilter, recruitmentDirectionFilter, titleSearchQuery]);
+  }, [
+    collectRecords,
+    publishPersonaFilter,
+    recruitmentDirectionFilter,
+    testPostFilter,
+    titleSearchQuery,
+  ]);
 
   const sortedRecords = useMemo(() => {
     const hasActiveSort = SORT_FIELD_OPTIONS.some(({ field }) => sortState[field].enabled);
@@ -193,9 +204,17 @@ export default function ListModule() {
   const pageSelectableIds = pageRecords
     .filter((record) => record.recordId)
     .map((record) => record.recordId!);
+  const filteredSelectableIds = sortedRecords
+    .filter((record) => record.recordId)
+    .map((record) => record.recordId!);
   const selectedPageCount = pageSelectableIds.filter((id) => selectedRecordIds.has(id)).length;
+  const selectedFilteredCount = filteredSelectableIds.filter((id) =>
+    selectedRecordIds.has(id)
+  ).length;
   const allPageSelected =
     pageSelectableIds.length > 0 && selectedPageCount === pageSelectableIds.length;
+  const allFilteredSelected =
+    filteredSelectableIds.length > 0 && selectedFilteredCount === filteredSelectableIds.length;
   const selectedRecords = useMemo(
     () => collectRecords.filter((record) => record.recordId && selectedRecordIds.has(record.recordId)),
     [collectRecords, selectedRecordIds]
@@ -207,7 +226,7 @@ export default function ListModule() {
 
   useEffect(() => {
     setPage(1);
-  }, [sortState, titleSearchQuery, recruitmentDirectionFilter, publishPersonaFilter]);
+  }, [sortState, titleSearchQuery, recruitmentDirectionFilter, publishPersonaFilter, testPostFilter]);
 
   useEffect(() => {
     setPage((current) => Math.min(current, totalPages));
@@ -254,6 +273,20 @@ export default function ListModule() {
 
     const nextIds = new Set(selectedRecordIds);
     pageSelectableIds.forEach((id) => nextIds.add(id));
+    selectAllRecords(Array.from(nextIds));
+  }
+
+  function handleSelectFilteredRecords() {
+    const filteredIdSet = new Set(filteredSelectableIds);
+
+    if (allFilteredSelected) {
+      const nextIds = Array.from(selectedRecordIds).filter((id) => !filteredIdSet.has(id));
+      selectAllRecords(nextIds);
+      return;
+    }
+
+    const nextIds = new Set(selectedRecordIds);
+    filteredSelectableIds.forEach((id) => nextIds.add(id));
     selectAllRecords(Array.from(nextIds));
   }
 
@@ -336,24 +369,45 @@ export default function ListModule() {
         </div>
 
         {collectRecords.length > 0 && (
-          <div className="mt-2 flex flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap text-sm text-gray-600">
-            <button
-              type="button"
-              onClick={handleSelectCurrentPage}
-              disabled={pageSelectableIds.length === 0}
-              className="flex items-center gap-2 disabled:text-gray-300 disabled:cursor-not-allowed"
-            >
-              <div
-                className={clsx(
-                  "w-5 h-5 rounded border-2 flex items-center justify-center",
-                  allPageSelected ? "bg-red-500 border-red-500" : "border-gray-300 bg-white",
-                  pageSelectableIds.length === 0 && !allPageSelected && "border-gray-200 bg-gray-100"
-                )}
+          <div className="mt-2 flex flex-nowrap items-start gap-2 overflow-x-auto whitespace-nowrap text-sm text-gray-600">
+            <div className="w-[136px] shrink-0 space-y-1 pr-1 pt-0.5">
+              <button
+                type="button"
+                onClick={handleSelectCurrentPage}
+                disabled={pageSelectableIds.length === 0}
+                className="flex items-center gap-2 disabled:text-gray-300 disabled:cursor-not-allowed"
               >
-                {allPageSelected && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
-              </div>
-              <span>本页全选</span>
-            </button>
+                <div
+                  className={clsx(
+                    "w-5 h-5 rounded border-2 flex items-center justify-center",
+                    allPageSelected ? "bg-red-500 border-red-500" : "border-gray-300 bg-white",
+                    pageSelectableIds.length === 0 && !allPageSelected && "border-gray-200 bg-gray-100"
+                  )}
+                >
+                  {allPageSelected && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+                </div>
+                <span>本页全选</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleSelectFilteredRecords}
+                disabled={filteredSelectableIds.length === 0}
+                className="flex items-center gap-2 text-xs disabled:text-gray-300 disabled:cursor-not-allowed"
+              >
+                <div
+                  className={clsx(
+                    "w-5 h-5 rounded border-2 flex items-center justify-center",
+                    allFilteredSelected ? "bg-red-500 border-red-500" : "border-gray-300 bg-white",
+                    filteredSelectableIds.length === 0 &&
+                      !allFilteredSelected &&
+                      "border-gray-200 bg-gray-100"
+                  )}
+                >
+                  {allFilteredSelected && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+                </div>
+                <span>按筛选条件全选</span>
+              </button>
+            </div>
             <div className="flex flex-nowrap items-center gap-2">
               {SORT_FIELD_OPTIONS.map(({ field, label }) => {
                 const currentSort = sortState[field];
@@ -492,8 +546,31 @@ export default function ListModule() {
                   </button>
                 )}
               </div>
+              <button
+                type="button"
+                onClick={() => setTestPostFilter((current) => !current)}
+                className={clsx(
+                  "flex shrink-0 items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium transition-colors",
+                  testPostFilter
+                    ? "border-red-500 bg-red-500 text-white"
+                    : "border-gray-200 bg-gray-50 text-gray-600 hover:bg-white hover:text-gray-700"
+                )}
+                aria-pressed={testPostFilter}
+              >
+                <span>属性</span>
+                <span
+                  className={clsx(
+                    "rounded-md px-2 py-1 transition-colors",
+                    testPostFilter
+                      ? "bg-white/20 text-white"
+                      : "text-gray-500 hover:bg-white hover:text-gray-700"
+                  )}
+                >
+                  测试贴
+                </span>
+              </button>
             </div>
-            {(titleSearchQuery || recruitmentDirectionFilter || publishPersonaFilter) && (
+            {(titleSearchQuery || recruitmentDirectionFilter || publishPersonaFilter || testPostFilter) && (
               <span className="text-xs text-gray-400">
                 匹配 {sortedRecords.length} / {collectRecords.length} 条
               </span>
@@ -542,6 +619,8 @@ export default function ListModule() {
               onClick={() => {
                 setTitleSearchKeyword("");
                 setRecruitmentDirectionFilter("");
+                setPublishPersonaFilter("");
+                setTestPostFilter(false);
               }}
               className="mt-3 text-sm text-red-500 hover:underline"
             >
@@ -700,6 +779,11 @@ function RecordRow({
                 {record.publishPersona && (
                   <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-xs text-emerald-600">
                     发布人设：{record.publishPersona}
+                  </span>
+                )}
+                {record.isTestPost && (
+                  <span className="rounded bg-red-50 px-1.5 py-0.5 text-xs text-red-500">
+                    属性：测试贴
                   </span>
                 )}
               </div>

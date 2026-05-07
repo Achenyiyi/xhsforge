@@ -21,6 +21,7 @@ export interface XHSNote {
   coverText?: string; // 封面文案（从图片提取）
   publishPersona?: string; // 发布人设
   recruitmentDirection?: string; // 招聘方向
+  isTestPost?: boolean; // 测试贴（写入爆款库“测试”复选框）
 }
 
 export type SearchMode = "keyword" | "links";
@@ -52,6 +53,7 @@ export interface FeishuCollectRecord {
   rewriteRemark?: string; // 二创备注
   publishPersona?: string; // 发布人设
   recruitmentDirection?: string; // 招聘方向
+  isTestPost?: boolean; // 测试贴（爆款库“测试”复选框）
   hasRewritten?: boolean; // 已二创（复选框）
   // 原始笔记内容（在飞书不存储，仅内存用）
   originalTitle?: string;

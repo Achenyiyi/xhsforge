@@ -98,6 +98,7 @@ export default function CrawlModule() {
   const [recruitmentDirectionByNoteId, setRecruitmentDirectionByNoteId] = useState<
     Record<string, string | null>
   >({});
+  const [testPostByNoteId, setTestPostByNoteId] = useState<Record<string, boolean>>({});
 
   const activeHistory =
     searchHistories.find((history) => history.id === activeSearchHistoryId) || null;
@@ -120,6 +121,7 @@ export default function CrawlModule() {
     setSelectedIds(new Set());
     setPublishPersonaByNoteId({});
     setRecruitmentDirectionByNoteId({});
+    setTestPostByNoteId({});
 
     try {
       const res = await fetch("/api/xhs/search", {
@@ -209,6 +211,7 @@ export default function CrawlModule() {
         ...note,
         publishPersona: getSelectedPublishPersona(note),
         recruitmentDirection: getSelectedRecruitmentDirection(note),
+        isTestPost: getSelectedIsTestPost(note),
       }));
     if (toImport.length === 0) return;
 
@@ -269,6 +272,7 @@ export default function CrawlModule() {
     setSelectedIds(new Set());
     setPublishPersonaByNoteId({});
     setRecruitmentDirectionByNoteId({});
+    setTestPostByNoteId({});
     setActiveSearchHistoryId(history.id);
     setSearchMode(history.mode);
     if (history.mode === "keyword") {
@@ -296,6 +300,14 @@ export default function CrawlModule() {
     }
 
     return note.recruitmentDirection || "";
+  }
+
+  function getSelectedIsTestPost(note: XHSNote) {
+    if (Object.prototype.hasOwnProperty.call(testPostByNoteId, note.id)) {
+      return Boolean(testPostByNoteId[note.id]);
+    }
+
+    return Boolean(note.isTestPost);
   }
 
   function updatePublishPersona(noteId: string, value: PublishPersona, currentValue: string) {
@@ -326,6 +338,13 @@ export default function CrawlModule() {
       next[noteId] = value;
       return next;
     });
+  }
+
+  function updateTestPost(noteId: string, currentValue: boolean) {
+    setTestPostByNoteId((current) => ({
+      ...current,
+      [noteId]: !currentValue,
+    }));
   }
 
   return (
@@ -616,6 +635,7 @@ export default function CrawlModule() {
                     selected={selectedIds.has(note.id)}
                     publishPersona={getSelectedPublishPersona(note)}
                     recruitmentDirection={getSelectedRecruitmentDirection(note)}
+                    isTestPost={getSelectedIsTestPost(note)}
                     onToggle={() => toggleSelect(note.id)}
                     onPublishPersonaChange={(value, currentValue) =>
                       updatePublishPersona(note.id, value, currentValue)
@@ -623,6 +643,7 @@ export default function CrawlModule() {
                     onRecruitmentDirectionChange={(value, currentValue) =>
                       updateRecruitmentDirection(note.id, value, currentValue)
                     }
+                    onTestPostChange={(currentValue) => updateTestPost(note.id, currentValue)}
                   />
                 ))}
               </div>
@@ -701,17 +722,21 @@ function NoteCard({
   selected,
   publishPersona,
   recruitmentDirection,
+  isTestPost,
   onToggle,
   onPublishPersonaChange,
   onRecruitmentDirectionChange,
+  onTestPostChange,
 }: {
   note: XHSNote;
   selected: boolean;
   publishPersona: string;
   recruitmentDirection: string;
+  isTestPost: boolean;
   onToggle: () => void;
   onPublishPersonaChange: (value: PublishPersona, currentValue: string) => void;
   onRecruitmentDirectionChange: (value: RecruitmentDirection, currentValue: string) => void;
+  onTestPostChange: (currentValue: boolean) => void;
 }) {
   const noteDetailLink = buildOpenableNoteLink(note.noteLink, note.id);
 
@@ -809,6 +834,24 @@ function NoteCard({
               );
             })}
           </div>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <span className="w-11 shrink-0 text-[11px] text-gray-400">属性</span>
+          <button
+            type="button"
+            onClick={() => onTestPostChange(isTestPost)}
+            className={clsx(
+              "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
+              isTestPost
+                ? "border-red-500 bg-red-500 text-white"
+                : "border-gray-200 bg-gray-50 text-gray-500 hover:bg-white hover:text-gray-700"
+            )}
+            title={isTestPost ? "取消测试贴" : "标记为测试贴"}
+            aria-pressed={isTestPost}
+          >
+            测试贴
+          </button>
         </div>
       </div>
 
