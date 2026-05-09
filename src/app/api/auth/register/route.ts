@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "请输入 6 位邮箱验证码" }, { status: 400 });
     }
     if (acceptedTerms !== true) {
-      return NextResponse.json({ error: "请先同意用户协议" }, { status: 400 });
+      return NextResponse.json({ error: "请先阅读并同意用户协议" }, { status: 400 });
     }
 
     const result = await prisma.$transaction(async (tx) => {

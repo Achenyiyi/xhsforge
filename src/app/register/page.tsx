@@ -143,7 +143,17 @@ export default function RegisterPage() {
             onChange={(event) => setAcceptedTerms(event.target.checked)}
             className="h-4 w-4"
           />
-          <span>同意用户协议</span>
+          <span>
+            我已阅读并同意{" "}
+            <Link
+              href="/terms"
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-red-600 transition hover:text-red-700"
+            >
+              《用户协议》
+            </Link>
+          </span>
         </label>
 
         {message ? (
