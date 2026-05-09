@@ -16,6 +16,7 @@ import {
 import clsx from "clsx";
 import { useAppStore } from "@/store/appStore";
 import EngagementStats from "@/components/EngagementStats";
+import { apiFetch } from "@/lib/apiClient";
 import { PUBLISH_PERSONA_OPTIONS, RECRUITMENT_DIRECTION_OPTIONS } from "@/types";
 import type {
   PublishPersona,
@@ -124,7 +125,7 @@ export default function CrawlModule() {
     setTestPostByNoteId({});
 
     try {
-      const res = await fetch("/api/xhs/search", {
+      const res = await apiFetch("/api/xhs/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
@@ -194,7 +195,7 @@ export default function CrawlModule() {
 
   async function syncCollectList() {
     try {
-      const res = await fetch("/api/feishu/records");
+      const res = await apiFetch("/api/feishu/records");
       const data = await res.json();
       if (res.ok) {
         setCollectRecords(data.records || []);
@@ -220,7 +221,7 @@ export default function CrawlModule() {
     setImportSuccess("");
 
     try {
-      const res = await fetch("/api/feishu/import", {
+      const res = await apiFetch("/api/feishu/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

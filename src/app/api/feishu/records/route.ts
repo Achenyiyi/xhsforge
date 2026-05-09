@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { authErrorResponse, requireUser } from "@/lib/auth";
 import { getCollectRecords, getRecordsInTable } from "@/lib/feishu";
 import { runtimeConfig } from "@/lib/runtimeConfig";
 import { dedupeTags, extractTagsFromText, stripTagsFromText } from "@/lib/xhs";
@@ -259,6 +260,8 @@ function tsToStr(v: unknown): string {
 
 export async function GET() {
   try {
+    await requireUser();
+
     let allItems: Array<{ record_id: string; fields: Record<string, unknown> }> = [];
     let pageToken: string | undefined;
     const rewriteSnapshotIndex = await loadRewriteSnapshotIndex();
@@ -340,6 +343,9 @@ export async function GET() {
 
     return NextResponse.json({ records, total: records.length });
   } catch (e: unknown) {
+    const authResponse = authErrorResponse(e);
+    if (authResponse) return authResponse;
+
     console.error("Feishu records error:", e);
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "获取记录失败" },

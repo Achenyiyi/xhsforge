@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { getIndexedDbValue, setIndexedDbValue } from "@/lib/indexedDb";
+import { loadWorkspaceSnapshot, saveWorkspaceSnapshots } from "@/lib/workspaceClient";
 import { useAppStore, type WorkspaceSnapshot } from "@/store/appStore";
 
-const WORKSPACE_SNAPSHOT_KEY = "workspace-snapshot-v1";
 const SAVE_DELAY_MS = 250;
 
 export function useWorkspacePersistence() {
@@ -23,7 +22,7 @@ export function useWorkspacePersistence() {
 
     void (async () => {
       try {
-        const snapshot = await getIndexedDbValue<WorkspaceSnapshot>(WORKSPACE_SNAPSHOT_KEY);
+        const snapshot = await loadWorkspaceSnapshot<WorkspaceSnapshot>("workspace-snapshot");
         if (cancelled || !snapshot) {
           loadedRef.current = true;
           return;
@@ -49,13 +48,15 @@ export function useWorkspacePersistence() {
     if (!loadedRef.current) return;
 
     const timeoutId = window.setTimeout(() => {
-      void setIndexedDbValue<WorkspaceSnapshot>(WORKSPACE_SNAPSHOT_KEY, {
-        searchHistories,
-        crawlResults,
-        rewriteResults,
-        draftRecords,
+      void saveWorkspaceSnapshots({
+        "workspace-snapshot": {
+          searchHistories,
+          crawlResults,
+          rewriteResults,
+          draftRecords,
+        },
       }).catch((error) => {
-        console.error("保存本地工作区快照失败:", error);
+        console.error("保存云端工作区快照失败:", error);
       });
     }, SAVE_DELAY_MS);
 
@@ -64,4 +65,3 @@ export function useWorkspacePersistence() {
     };
   }, [crawlResults, draftRecords, rewriteResults, searchHistories]);
 }
-

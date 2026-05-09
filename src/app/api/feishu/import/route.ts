@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { authErrorResponse, requireUser } from "@/lib/auth";
 import {
   createCollectRecords,
   getCollectRecords,
@@ -427,6 +428,8 @@ async function uploadNoteCover(note: XHSNote) {
 
 export async function POST(req: NextRequest) {
   try {
+    await requireUser();
+
     const { notes, keyword }: { notes: XHSNote[]; keyword: string } = await req.json();
 
     if (!notes || notes.length === 0) {
@@ -562,6 +565,9 @@ export async function POST(req: NextRequest) {
       skippedCount,
     });
   } catch (e: unknown) {
+    const authResponse = authErrorResponse(e);
+    if (authResponse) return authResponse;
+
     console.error("Feishu import error:", e);
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "导入失败" },

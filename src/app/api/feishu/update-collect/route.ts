@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { authErrorResponse, requireUser } from "@/lib/auth";
 import { getTableFields, TABLE_ID, updateCollectRecords } from "@/lib/feishu";
 import { dedupeTags, extractTagsFromText, formatTagsForStorage } from "@/lib/xhs";
 
@@ -54,6 +55,8 @@ function normalizeTags(value: unknown): string[] {
 
 export async function POST(req: NextRequest) {
   try {
+    await requireUser();
+
     const { recordId, fields }: UpdateCollectPayload = await req.json();
     const normalizedRecordId = typeof recordId === "string" ? recordId.trim() : "";
 
@@ -114,6 +117,9 @@ export async function POST(req: NextRequest) {
       updatedRecord,
     });
   } catch (error: unknown) {
+    const authResponse = authErrorResponse(error);
+    if (authResponse) return authResponse;
+
     console.error("Update collect record error:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "同步爆款库失败" },

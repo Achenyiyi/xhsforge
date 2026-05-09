@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { createCloudZustandStorage } from "@/lib/cloudZustandStorage";
 
 export interface ReplaceEntry {
   id: string;
@@ -208,7 +209,7 @@ export const useRewriteSettingsStore = create<RewriteSettingsState>()(
     {
       name: "xhs-app-rewrite-settings",
       version: 2,
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => createCloudZustandStorage()),
       partialize: (state) => ({
         replaceLibraryEnabledByScope: state.replaceLibraryEnabledByScope,
         autoMergeExtractedEntries: state.autoMergeExtractedEntries,

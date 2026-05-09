@@ -22,6 +22,7 @@ import {
   setCachedSearchResponse,
 } from "@/lib/xhsCache";
 import { runtimeConfig } from "@/lib/runtimeConfig";
+import { authErrorResponse, requireUser } from "@/lib/auth";
 
 const XHS_API_BASE = runtimeConfig.xhs.apiBaseUrl;
 const XHS_API_KEY = runtimeConfig.xhs.apiKey;
@@ -585,6 +586,8 @@ async function searchByLinks(noteLinks: string[]) {
 
 export async function POST(req: NextRequest) {
   try {
+    await requireUser();
+
     const {
       keyword,
       filters,
@@ -689,6 +692,9 @@ export async function POST(req: NextRequest) {
       warning: warning || undefined,
     });
   } catch (error: unknown) {
+    const authResponse = authErrorResponse(error);
+    if (authResponse) return authResponse;
+
     console.error("XHS search error:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "服务器内部错误" },

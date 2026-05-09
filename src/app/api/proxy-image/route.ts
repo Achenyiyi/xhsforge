@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { authErrorResponse, requireUser } from "@/lib/auth";
 import { normalizeImageUrl } from "@/lib/image";
 import { fetchImageResponse } from "@/lib/serverImage";
 
@@ -6,6 +7,13 @@ import { fetchImageResponse } from "@/lib/serverImage";
  * 图片代理接口：规避前端跨域问题，将小红书/飞书等图片通过服务端转发
  */
 export async function GET(req: NextRequest) {
+  try {
+    await requireUser();
+  } catch (error) {
+    const authResponse = authErrorResponse(error);
+    if (authResponse) return authResponse;
+  }
+
   const { searchParams } = new URL(req.url);
   const imageUrl = searchParams.get("url");
 

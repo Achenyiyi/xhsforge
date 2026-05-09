@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { authErrorResponse, requireUser } from "@/lib/auth";
 import {
   createRecordsInTable,
   updateCollectRecords,
@@ -667,6 +668,8 @@ function normalizeRewrittenCoverTextForStorage(value: string) {
 
 export async function POST(req: NextRequest) {
   try {
+    await requireUser();
+
     const {
       results,
       extractReplacePromptTemplate = "",
@@ -877,6 +880,9 @@ export async function POST(req: NextRequest) {
       collectUpdateWarning,
     });
   } catch (e: unknown) {
+    const authResponse = authErrorResponse(e);
+    if (authResponse) return authResponse;
+
     console.error("Save draft error:", e);
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "保存失败" },

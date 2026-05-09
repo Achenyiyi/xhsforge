@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { authErrorResponse, requireUser } from "@/lib/auth";
 import { runtimeConfig } from "@/lib/runtimeConfig";
 import { fetchImageAsDataUrl } from "@/lib/serverImage";
 
@@ -132,6 +133,8 @@ async function requestJimengImage(endpoint: string, body: Record<string, unknown
 
 export async function POST(req: NextRequest) {
   try {
+    await requireUser();
+
     const {
       prompt,
       ratio = "3:4",
@@ -171,6 +174,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ imageUrl: stableImageUrl });
   } catch (e: unknown) {
+    const authResponse = authErrorResponse(e);
+    if (authResponse) return authResponse;
+
     console.error("Jimeng generate error:", e);
     return NextResponse.json(
       { error: resolveJimengErrorMessage(e) },

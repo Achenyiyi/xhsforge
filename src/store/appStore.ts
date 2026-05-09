@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { createCloudZustandStorage } from "@/lib/cloudZustandStorage";
 import type {
   ActiveModule,
   DraftRecord,
@@ -174,7 +175,7 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: "xhs-app-ui-state",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => createCloudZustandStorage()),
       partialize: (state) => ({
         activeModule: state.activeModule,
         crawlKeyword: state.crawlKeyword,

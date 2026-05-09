@@ -5,6 +5,7 @@ import { RefreshCw, Sparkles, ChevronDown, ChevronUp, Check, Search, X } from "l
 import clsx from "clsx";
 import { useAppStore } from "@/store/appStore";
 import EngagementStats from "@/components/EngagementStats";
+import { apiFetch } from "@/lib/apiClient";
 import { pickDefaultCoverTemplateSelection } from "@/lib/coverTemplates";
 import { dedupeTags, sanitizeTitle } from "@/lib/xhs";
 import { buildOpenableNoteLink } from "@/lib/xhsLink";
@@ -236,7 +237,7 @@ export default function ListModule() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/feishu/records");
+      const res = await apiFetch("/api/feishu/records");
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "获取失败");
       setCollectRecords(data.records || []);

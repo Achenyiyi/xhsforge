@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { createCloudZustandStorage } from "@/lib/cloudZustandStorage";
 import {
   hasOriginalAndRewrittenPlaceholder,
   hasReplaceInfoPlaceholder,
@@ -266,7 +267,7 @@ export const usePromptsSettingsStore = create<PromptsSettingsState>()(
     }),
     {
       name: "xhs-app-prompts-settings",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => createCloudZustandStorage()),
       partialize: (state) => ({
         bodyRewritePrompt: state.bodyRewritePrompt,
         titleRewritePrompt: state.titleRewritePrompt,

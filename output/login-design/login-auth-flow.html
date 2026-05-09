@@ -1,0 +1,841 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>剽之有道 - 登录体系设计稿</title>
+  <style>
+    :root {
+      --ink: #111827;
+      --muted: #667085;
+      --soft: #f6f7fb;
+      --line: #e4e7ec;
+      --brand: #ee283a;
+      --brand-dark: #b91526;
+      --gold: #f4c978;
+      --navy: #121826;
+      --navy-2: #182033;
+      --paper: #ffffff;
+      --success: #12b76a;
+      --shadow: 0 24px 70px rgba(17, 24, 39, 0.13);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 16% 12%, rgba(244, 201, 120, 0.22), transparent 28%),
+        radial-gradient(circle at 92% 8%, rgba(238, 40, 58, 0.12), transparent 30%),
+        linear-gradient(135deg, #fafafa 0%, #f3f5f9 48%, #eef1f6 100%);
+      color: var(--ink);
+      font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", Arial, sans-serif;
+    }
+
+    .board {
+      width: 1680px;
+      min-height: 1080px;
+      margin: 0 auto;
+      padding: 44px;
+      display: grid;
+      grid-template-columns: 370px 1fr;
+      gap: 34px;
+    }
+
+    .brand-panel {
+      position: relative;
+      overflow: hidden;
+      border-radius: 30px;
+      background:
+        radial-gradient(circle at 20% 8%, rgba(244, 201, 120, 0.24), transparent 31%),
+        linear-gradient(155deg, #0f1728 0%, #131b2d 52%, #0b1020 100%);
+      color: #fff;
+      min-height: 990px;
+      box-shadow: var(--shadow);
+      padding: 38px 34px;
+    }
+
+    .brand-panel::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+      background-size: 34px 34px;
+      mask-image: linear-gradient(to bottom, #000 0%, transparent 82%);
+    }
+
+    .brand-panel::after {
+      content: "";
+      position: absolute;
+      left: 34px;
+      right: 34px;
+      bottom: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(244, 201, 120, 0.8), transparent);
+    }
+
+    .brand-inner {
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .seal {
+      width: 106px;
+      height: 106px;
+      border: 1px solid rgba(244, 201, 120, 0.45);
+      border-radius: 28px;
+      display: grid;
+      place-items: center;
+      background: rgba(255, 255, 255, 0.04);
+      box-shadow: inset 0 0 30px rgba(244, 201, 120, 0.08);
+    }
+
+    .seal span {
+      display: block;
+      font-family: "STKaiti", "KaiTi", "Microsoft YaHei", serif;
+      font-size: 48px;
+      line-height: 1;
+      color: var(--gold);
+      transform: skewX(-6deg);
+      text-shadow: 0 10px 28px rgba(244, 201, 120, 0.25);
+    }
+
+    .brand-title {
+      margin-top: 34px;
+      font-family: "STKaiti", "KaiTi", "Microsoft YaHei", serif;
+      font-size: 54px;
+      line-height: 1;
+      letter-spacing: 0.12em;
+      font-weight: 900;
+      color: transparent;
+      background: linear-gradient(90deg, #fff7d7, #f4c978 54%, #f08f62);
+      -webkit-background-clip: text;
+      background-clip: text;
+      transform: skewX(-7deg);
+    }
+
+    .brand-subtitle {
+      margin-top: 18px;
+      width: max-content;
+      max-width: 100%;
+      border: 1px solid rgba(244, 201, 120, 0.28);
+      border-radius: 999px;
+      padding: 9px 14px;
+      color: rgba(255, 245, 220, 0.78);
+      font-size: 13px;
+      letter-spacing: 0.26em;
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .brand-copy {
+      margin-top: 62px;
+    }
+
+    .brand-copy h2 {
+      margin: 0;
+      font-size: 27px;
+      line-height: 1.42;
+      letter-spacing: 0;
+      color: #fff;
+    }
+
+    .brand-copy p {
+      margin: 16px 0 0;
+      font-size: 15px;
+      line-height: 1.9;
+      color: rgba(255, 255, 255, 0.62);
+    }
+
+    .steps {
+      margin-top: 70px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 38px 1fr;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .step-no {
+      height: 38px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--gold);
+      border: 1px solid rgba(244, 201, 120, 0.2);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .step strong {
+      display: block;
+      color: rgba(255, 255, 255, 0.9);
+      font-size: 14px;
+      margin-top: 1px;
+    }
+
+    .step span {
+      display: block;
+      margin-top: 4px;
+      color: rgba(255, 255, 255, 0.5);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .brand-footer {
+      margin-top: auto;
+      padding-top: 34px;
+      color: rgba(255, 255, 255, 0.42);
+      font-size: 12px;
+      line-height: 1.75;
+    }
+
+    .content {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 22px;
+    }
+
+    .header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      padding: 4px 2px 0;
+    }
+
+    .header h1 {
+      margin: 0;
+      font-size: 30px;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+
+    .header p {
+      margin: 9px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .pill {
+      border: 1px solid #f0d3d7;
+      color: var(--brand-dark);
+      background: #fff6f7;
+      border-radius: 999px;
+      padding: 9px 13px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .screens {
+      display: grid;
+      grid-template-columns: 330px 330px 330px;
+      gap: 22px;
+      align-content: start;
+    }
+
+    .screen {
+      position: relative;
+      border-radius: 28px;
+      background: rgba(255, 255, 255, 0.88);
+      border: 1px solid rgba(228, 231, 236, 0.9);
+      box-shadow: 0 22px 58px rgba(17, 24, 39, 0.09);
+      overflow: hidden;
+    }
+
+    .screen.tall {
+      min-height: 636px;
+    }
+
+    .screen.compact {
+      min-height: 414px;
+    }
+
+    .screen.workspace {
+      grid-column: span 3;
+      min-height: 306px;
+      background: #f8fafc;
+    }
+
+    .screen-label {
+      position: absolute;
+      top: 16px;
+      left: 18px;
+      color: #98a2b3;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .auth-card {
+      padding: 46px 32px 34px;
+    }
+
+    .mini-brand {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      color: #667085;
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .mini-logo {
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, #151b2c, #25304a);
+      color: var(--gold);
+      font-family: "STKaiti", "KaiTi", serif;
+      font-size: 20px;
+      box-shadow: 0 10px 22px rgba(17, 24, 39, 0.16);
+    }
+
+    .auth-title {
+      margin: 26px 0 6px;
+      text-align: center;
+      font-size: 30px;
+      line-height: 1;
+      letter-spacing: 0;
+      font-weight: 900;
+    }
+
+    .auth-desc {
+      margin: 0 0 26px;
+      color: #98a2b3;
+      font-size: 13px;
+      text-align: center;
+      line-height: 1.6;
+    }
+
+    .field-stack {
+      display: grid;
+      gap: 14px;
+    }
+
+    .field {
+      position: relative;
+    }
+
+    .field input {
+      width: 100%;
+      height: 54px;
+      border: 1px solid #d9dee8;
+      border-radius: 16px;
+      background: #fff;
+      outline: none;
+      padding: 0 16px;
+      color: var(--ink);
+      font-size: 14px;
+      box-shadow: 0 4px 14px rgba(17, 24, 39, 0.04);
+    }
+
+    .field input::placeholder {
+      color: #98a2b3;
+    }
+
+    .field input:focus {
+      border-color: rgba(238, 40, 58, 0.48);
+      box-shadow: 0 0 0 4px rgba(238, 40, 58, 0.08);
+    }
+
+    .field.with-action input {
+      padding-right: 102px;
+    }
+
+    .inline-action {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      border: 0;
+      background: transparent;
+      color: var(--brand);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 16px;
+      color: #475467;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .fake-check {
+      width: 20px;
+      height: 20px;
+      border: 2px solid #d0d5dd;
+      border-radius: 7px;
+      background: #fff;
+      flex: 0 0 auto;
+    }
+
+    .checkbox-row a,
+    .text-link {
+      color: var(--brand);
+      text-decoration: none;
+      font-weight: 800;
+    }
+
+    .primary-btn,
+    .ghost-btn {
+      width: 100%;
+      height: 50px;
+      border-radius: 15px;
+      font-size: 14px;
+      font-weight: 900;
+      cursor: default;
+    }
+
+    .primary-btn {
+      border: 0;
+      color: #fff;
+      background: linear-gradient(135deg, var(--brand), #ff5161);
+      box-shadow: 0 14px 28px rgba(238, 40, 58, 0.26);
+    }
+
+    .ghost-btn {
+      border: 1px solid rgba(238, 40, 58, 0.42);
+      color: var(--brand);
+      background: #fff;
+    }
+
+    .auth-actions {
+      display: grid;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .divider {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 13px;
+      color: #98a2b3;
+      font-size: 13px;
+      margin: 20px 0;
+    }
+
+    .divider::before,
+    .divider::after {
+      content: "";
+      height: 1px;
+      background: #e4e7ec;
+    }
+
+    .bottom-copy {
+      margin-top: 16px;
+      color: #475467;
+      font-size: 14px;
+      text-align: left;
+    }
+
+    .soft-band {
+      margin: 28px -32px 0;
+      padding: 24px 32px 0;
+      border-top: 1px solid #edf0f5;
+      background: linear-gradient(180deg, #f9fafb 0%, rgba(249, 250, 251, 0) 100%);
+    }
+
+    .icon-top {
+      width: 54px;
+      height: 54px;
+      border-radius: 18px;
+      margin: 0 auto 18px;
+      display: grid;
+      place-items: center;
+      color: var(--brand);
+      background: #fff1f3;
+      border: 1px solid #ffd7dc;
+      font-size: 26px;
+    }
+
+    .locked-field {
+      height: 54px;
+      border-radius: 16px;
+      background: #f2f4f7;
+      padding: 8px 16px;
+      color: #98a2b3;
+      font-size: 12px;
+    }
+
+    .locked-field strong {
+      display: block;
+      margin-top: 5px;
+      color: #475467;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .workspace-shell {
+      display: grid;
+      grid-template-columns: 205px 1fr;
+      min-height: 306px;
+    }
+
+    .mock-sidebar {
+      background: #111827;
+      color: #fff;
+      padding: 22px 16px;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    .mock-logo-card {
+      border-radius: 18px;
+      border: 1px solid rgba(244, 201, 120, 0.24);
+      background: linear-gradient(145deg, rgba(255,255,255,0.07), rgba(255,255,255,0.02));
+      padding: 16px 14px;
+      font-family: "STKaiti", "KaiTi", serif;
+      font-size: 24px;
+      color: var(--gold);
+      letter-spacing: 0.12em;
+    }
+
+    .mock-nav {
+      margin-top: 20px;
+      display: grid;
+      gap: 9px;
+    }
+
+    .mock-nav div {
+      height: 42px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .mock-nav div:first-child {
+      background: var(--brand);
+    }
+
+    .account-anchor {
+      position: absolute;
+      left: 13px;
+      right: 13px;
+      bottom: 14px;
+    }
+
+    .account-menu {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 58px;
+      border-radius: 16px;
+      background: #fff;
+      color: #344054;
+      box-shadow: 0 18px 46px rgba(0, 0, 0, 0.28);
+      border: 1px solid rgba(228, 231, 236, 0.9);
+      padding: 8px;
+    }
+
+    .menu-item {
+      height: 36px;
+      border-radius: 10px;
+      padding: 0 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #344054;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .menu-item.danger {
+      color: var(--brand);
+    }
+
+    .menu-item:hover {
+      background: #f6f7fb;
+    }
+
+    .account-row {
+      height: 48px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.08);
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 10px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .avatar {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #f4c978, #ee283a);
+      display: grid;
+      place-items: center;
+      font-size: 13px;
+      font-weight: 900;
+      color: #fff;
+      flex: 0 0 auto;
+    }
+
+    .nickname {
+      min-width: 0;
+      flex: 1;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 800;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .chevron {
+      color: rgba(255, 255, 255, 0.58);
+      font-size: 17px;
+      font-weight: 900;
+    }
+
+    .mock-main {
+      padding: 24px;
+      background: #f8fafc;
+    }
+
+    .mock-toolbar {
+      height: 48px;
+      border-radius: 14px;
+      background: #fff;
+      border: 1px solid #e4e7ec;
+      display: grid;
+      grid-template-columns: 1fr 96px;
+      gap: 10px;
+      padding: 8px;
+    }
+
+    .mock-input,
+    .mock-button {
+      border-radius: 10px;
+    }
+
+    .mock-input {
+      background: #f2f4f7;
+    }
+
+    .mock-button {
+      background: var(--brand);
+    }
+
+    .mock-empty {
+      margin-top: 22px;
+      height: 164px;
+      border-radius: 18px;
+      background:
+        linear-gradient(90deg, rgba(255,255,255,0.8), rgba(255,255,255,0.55)),
+        repeating-linear-gradient(0deg, transparent, transparent 25px, rgba(228,231,236,0.65) 26px);
+      border: 1px solid #e4e7ec;
+      display: grid;
+      place-items: center;
+      color: #98a2b3;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .note {
+      position: absolute;
+      right: 18px;
+      bottom: 14px;
+      color: #98a2b3;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <main class="board">
+    <section class="brand-panel">
+      <div class="brand-inner">
+        <div class="seal"><span>剽</span></div>
+        <div class="brand-title">剽之有道</div>
+        <div class="brand-subtitle">采集 · 二创 · 入库</div>
+
+        <div class="brand-copy">
+          <h2>把登录做成产品的第一道稳定入口。</h2>
+          <p>这版以邮箱验证为主线，把注册、找回密码、重置密码和登录后账号菜单串成同一套体验。视觉延续当前侧边栏的深色品牌气质，但表单区保持干净、轻、可信。</p>
+        </div>
+
+        <div class="steps">
+          <div class="step">
+            <div class="step-no">01</div>
+            <div>
+              <strong>邮箱注册</strong>
+              <span>昵称作为展示名，邮箱作为登录和找回密码凭证。</span>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-no">02</div>
+            <div>
+              <strong>验证码重置密码</strong>
+              <span>忘记密码后发邮件验证码，验证通过后设置新密码。</span>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-no">03</div>
+            <div>
+              <strong>云端工作区</strong>
+              <span>登录后同步搜索记录、草稿、二创产物与用户设置。</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="brand-footer">
+          登录态 30 天 · 2 台设备在线 · 5 次失败锁定 5 分钟<br />
+          API 全量鉴权 · PostgreSQL 云端工作区
+        </div>
+      </div>
+    </section>
+
+    <section class="content">
+      <header class="header">
+        <div>
+          <h1>登录体系高保真设计稿</h1>
+          <p>完整流程画板：登录、注册、忘记密码、重置密码、工作台账号菜单</p>
+        </div>
+        <div class="pill">邮箱主流程 · 免费开放版</div>
+      </header>
+
+      <div class="screens">
+        <section class="screen tall">
+          <div class="screen-label">Login</div>
+          <div class="auth-card">
+            <div class="mini-brand"><div class="mini-logo">剽</div><span>剽之有道</span></div>
+            <h2 class="auth-title">登录</h2>
+            <p class="auth-desc">进入你的内容运营工作区</p>
+            <div class="field-stack">
+              <label class="field"><input placeholder="邮箱" value="" /></label>
+              <label class="field"><input placeholder="密码" type="password" value="" /></label>
+            </div>
+            <div class="auth-actions">
+              <button class="primary-btn">登录</button>
+            </div>
+            <div class="divider">或</div>
+            <button class="ghost-btn">忘记密码</button>
+            <div class="bottom-copy">没有账号？ <a class="text-link">注册账号</a></div>
+          </div>
+        </section>
+
+        <section class="screen tall">
+          <div class="screen-label">Register</div>
+          <div class="auth-card">
+            <div class="mini-brand"><div class="mini-logo">剽</div><span>剽之有道</span></div>
+            <h2 class="auth-title">注册</h2>
+            <p class="auth-desc">邮箱验证后即可免费使用</p>
+            <div class="field-stack">
+              <label class="field"><input placeholder="昵称 *" /></label>
+              <label class="field"><input placeholder="邮箱 *" /></label>
+              <label class="field with-action">
+                <input placeholder="验证码 *" />
+                <button class="inline-action">发送验证码</button>
+              </label>
+              <label class="field"><input placeholder="密码 *" type="password" /></label>
+            </div>
+            <div class="checkbox-row">
+              <span class="fake-check"></span>
+              <span>我同意 <a>剽之有道 用户协议</a></span>
+            </div>
+            <div class="auth-actions">
+              <button class="primary-btn">注册</button>
+            </div>
+            <div class="divider">或</div>
+            <button class="ghost-btn">返回登录</button>
+            <div class="bottom-copy">已经有账号了？ <a class="text-link">登录账号</a></div>
+          </div>
+        </section>
+
+        <section class="screen compact">
+          <div class="screen-label">Forgot</div>
+          <div class="auth-card">
+            <div class="icon-top">锁</div>
+            <h2 class="auth-title">重置密码</h2>
+            <p class="auth-desc">输入邮箱以接收验证码</p>
+            <div class="soft-band">
+              <div class="field-stack">
+                <label class="field"><input placeholder="邮箱" /></label>
+              </div>
+              <div class="auth-actions">
+                <button class="primary-btn">发送验证码</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="screen tall">
+          <div class="screen-label">Reset</div>
+          <div class="auth-card">
+            <div class="icon-top">锁</div>
+            <h2 class="auth-title">重置密码</h2>
+            <p class="auth-desc">请输入收到的验证码和新密码</p>
+            <div class="field-stack">
+              <div class="locked-field">邮箱<strong>2992063293@qq.com</strong></div>
+              <label class="field"><input placeholder="验证码" /></label>
+              <label class="field"><input placeholder="新密码" type="password" /></label>
+              <label class="field"><input placeholder="确认密码" type="password" /></label>
+            </div>
+            <div class="auth-actions">
+              <button class="primary-btn">确认重置密码</button>
+            </div>
+            <div class="bottom-copy" style="text-align:center;margin-top:18px;"><a class="text-link">返回登录</a></div>
+          </div>
+        </section>
+
+        <section class="screen workspace">
+          <div class="screen-label">Signed In</div>
+          <div class="workspace-shell">
+            <aside class="mock-sidebar">
+              <div class="mock-logo-card">剽之有道</div>
+              <div class="mock-nav">
+                <div></div>
+                <div></div>
+                <div></div>
+                <div></div>
+              </div>
+              <div class="account-anchor">
+                <div class="account-menu">
+                  <div class="menu-item"><span>修改昵称</span><span>›</span></div>
+                  <div class="menu-item"><span>修改密码</span><span>›</span></div>
+                  <div class="menu-item"><span>登录设备</span><span>›</span></div>
+                  <div class="menu-item danger"><span>退出登录</span><span>↗</span></div>
+                </div>
+                <div class="account-row">
+                  <div class="avatar">赵</div>
+                  <div class="nickname">赵老师</div>
+                  <div class="chevron">›</div>
+                </div>
+              </div>
+            </aside>
+            <div class="mock-main">
+              <div class="mock-toolbar">
+                <div class="mock-input"></div>
+                <div class="mock-button"></div>
+              </div>
+              <div class="mock-empty">登录后自动恢复云端工作记录</div>
+            </div>
+          </div>
+          <div class="note">账号菜单向上展开，点击空白处关闭</div>
+        </section>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

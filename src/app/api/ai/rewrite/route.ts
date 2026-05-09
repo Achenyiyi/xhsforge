@@ -6,6 +6,7 @@ import {
 } from "@/lib/prompts";
 import { extractCoverTextFromImageUrl, sanitizeExtractedImageText } from "@/lib/coverText";
 import { runtimeConfig } from "@/lib/runtimeConfig";
+import { authErrorResponse, requireUser } from "@/lib/auth";
 
 const DASHSCOPE_API_KEY = runtimeConfig.dashscope.apiKey;
 const DASHSCOPE_BASE_URL = runtimeConfig.dashscope.baseUrl;
@@ -162,6 +163,8 @@ async function callDashScope(
 
 export async function POST(req: NextRequest) {
   try {
+    await requireUser();
+
     const {
       type, // "title" | "body" | "extract-image-text"
       content, // 正文或标题文本
@@ -255,6 +258,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ error: `未知type: ${type}` }, { status: 400 });
   } catch (e: unknown) {
+    const authResponse = authErrorResponse(e);
+    if (authResponse) return authResponse;
+
     console.error("AI rewrite error:", e);
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "AI处理失败" },

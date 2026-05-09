@@ -25,6 +25,7 @@ import AiTemplateModal, { type AiTemplateMode } from "@/components/AiTemplateMod
 import ImageCropModal from "@/components/ImageCropModal";
 import { useCoverTemplateLibraryPersistence } from "@/hooks/useCoverTemplateLibraryPersistence";
 import { useAppStore } from "@/store/appStore";
+import { apiFetch } from "@/lib/apiClient";
 import { composeCoverImage } from "@/lib/coverComposer";
 import {
   DEFAULT_COVER_LAYOUT_ID,
@@ -82,7 +83,7 @@ const LIBRARY_SCOPES: Array<{ scope: ReplaceLibraryScope; label: string; desc: s
 
 async function callRewriteApi(payload: Record<string, unknown> & { signal?: AbortSignal }) {
   const { signal, ...body } = payload;
-  const res = await fetch("/api/ai/rewrite", {
+  const res = await apiFetch("/api/ai/rewrite", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -113,7 +114,7 @@ async function callJimengGenerate(payload: {
   signal?: AbortSignal;
 }) {
   const { signal, ...body } = payload;
-  const res = await fetch("/api/jimeng/generate", {
+  const res = await apiFetch("/api/jimeng/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -792,7 +793,7 @@ export default function RewriteModule() {
         fields.tags = updates.originalTags ?? [];
       }
 
-      const res = await fetch("/api/feishu/update-collect", {
+      const res = await apiFetch("/api/feishu/update-collect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ recordId, fields }),
@@ -1285,7 +1286,7 @@ export default function RewriteModule() {
     setSaveMsg("");
 
     try {
-      const res = await fetch("/api/feishu/save-draft", {
+      const res = await apiFetch("/api/feishu/save-draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1405,7 +1406,7 @@ export default function RewriteModule() {
         deselectRewriteIds(Array.from(persistedIds));
 
         try {
-          const recordsRes = await fetch("/api/feishu/records");
+          const recordsRes = await apiFetch("/api/feishu/records");
           const recordsData = await recordsRes.json();
           if (recordsRes.ok) {
             const nextRecords = (recordsData.records || []) as Array<

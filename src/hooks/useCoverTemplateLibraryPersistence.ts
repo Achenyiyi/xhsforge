@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { getIndexedDbValue, setIndexedDbValue } from "@/lib/indexedDb";
+import { loadWorkspaceSnapshot, saveWorkspaceSnapshots } from "@/lib/workspaceClient";
 import { useCoverTemplateLibraryStore } from "@/store/coverTemplateLibraryStore";
 import type { CoverTemplateAsset } from "@/lib/coverTemplates";
 
-const COVER_TEMPLATE_LIBRARY_KEY = "cover-template-library-v1";
 const SAVE_DELAY_MS = 250;
 
 export function useCoverTemplateLibraryPersistence() {
@@ -19,7 +18,7 @@ export function useCoverTemplateLibraryPersistence() {
 
     void (async () => {
       try {
-        const snapshot = await getIndexedDbValue<CoverTemplateAsset[]>(COVER_TEMPLATE_LIBRARY_KEY);
+        const snapshot = await loadWorkspaceSnapshot<CoverTemplateAsset[]>("cover-template-library");
         if (cancelled) return;
 
         setCustomTemplates(Array.isArray(snapshot) ? snapshot : []);
@@ -40,11 +39,11 @@ export function useCoverTemplateLibraryPersistence() {
     if (!loadedRef.current) return;
 
     const timeoutId = window.setTimeout(() => {
-      void setIndexedDbValue<CoverTemplateAsset[]>(COVER_TEMPLATE_LIBRARY_KEY, customTemplates).catch(
-        (error) => {
-          console.error("保存模板库失败:", error);
-        }
-      );
+      void saveWorkspaceSnapshots({
+        "cover-template-library": customTemplates,
+      }).catch((error) => {
+        console.error("保存云端模板库失败:", error);
+      });
     }, SAVE_DELAY_MS);
 
     return () => window.clearTimeout(timeoutId);
