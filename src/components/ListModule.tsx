@@ -369,220 +369,226 @@ export default function ListModule() {
         </div>
 
         {collectRecords.length > 0 && (
-          <div className="mt-2 flex flex-nowrap items-start gap-2 overflow-x-auto whitespace-nowrap text-sm text-gray-600">
-            <div className="w-[136px] shrink-0 space-y-1 pr-1 pt-0.5">
-              <button
-                type="button"
-                onClick={handleSelectCurrentPage}
-                disabled={pageSelectableIds.length === 0}
-                className="flex items-center gap-2 disabled:text-gray-300 disabled:cursor-not-allowed"
-              >
-                <div
-                  className={clsx(
-                    "w-5 h-5 rounded border-2 flex items-center justify-center",
-                    allPageSelected ? "bg-red-500 border-red-500" : "border-gray-300 bg-white",
-                    pageSelectableIds.length === 0 && !allPageSelected && "border-gray-200 bg-gray-100"
-                  )}
-                >
-                  {allPageSelected && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
-                </div>
-                <span>本页全选</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleSelectFilteredRecords}
-                disabled={filteredSelectableIds.length === 0}
-                className="flex items-center gap-2 text-xs disabled:text-gray-300 disabled:cursor-not-allowed"
-              >
-                <div
-                  className={clsx(
-                    "w-5 h-5 rounded border-2 flex items-center justify-center",
-                    allFilteredSelected ? "bg-red-500 border-red-500" : "border-gray-300 bg-white",
-                    filteredSelectableIds.length === 0 &&
-                      !allFilteredSelected &&
-                      "border-gray-200 bg-gray-100"
-                  )}
-                >
-                  {allFilteredSelected && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
-                </div>
-                <span>按筛选条件全选</span>
-              </button>
-            </div>
-            <div className="flex flex-nowrap items-center gap-2">
-              {SORT_FIELD_OPTIONS.map(({ field, label }) => {
-                const currentSort = sortState[field];
-
-                return (
-                  <div
-                    key={field}
-                    className="flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5"
+          <div className="mt-3 border-y border-gray-100 bg-gray-50/70 px-3 py-2">
+            <div className="flex items-start gap-3">
+              <div className="w-[142px] shrink-0 space-y-1 border-r border-gray-200 pr-3">
+                <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <button
+                    type="button"
+                    onClick={handleSelectCurrentPage}
+                    disabled={pageSelectableIds.length === 0}
+                    className={clsx(
+                      "w-5 h-5 rounded border-2 flex items-center justify-center transition-colors disabled:cursor-not-allowed",
+                      allPageSelected ? "bg-red-500 border-red-500" : "border-gray-300 bg-white",
+                      pageSelectableIds.length === 0 && !allPageSelected && "border-gray-200 bg-gray-100"
+                    )}
+                    title="本页全选"
+                    aria-label="本页全选"
                   >
-                    <button
-                      type="button"
-                      onClick={() => toggleSortEnabled(field)}
-                      className="flex items-center"
-                    >
+                    {allPageSelected && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+                  </button>
+                  <span>本页全选</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <button
+                    type="button"
+                    onClick={handleSelectFilteredRecords}
+                    disabled={filteredSelectableIds.length === 0}
+                    className={clsx(
+                      "w-5 h-5 rounded border-2 flex items-center justify-center transition-colors disabled:cursor-not-allowed",
+                      allFilteredSelected ? "bg-red-500 border-red-500" : "border-gray-300 bg-white",
+                      filteredSelectableIds.length === 0 &&
+                        !allFilteredSelected &&
+                        "border-gray-200 bg-gray-100"
+                    )}
+                    title="按筛选条件全选"
+                    aria-label="按筛选条件全选"
+                  >
+                    {allFilteredSelected && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+                  </button>
+                  <span>按筛选条件全选</span>
+                </div>
+                {selectedRecordIds.size > 0 && (
+                  <button
+                    onClick={clearRecordSelection}
+                    className="pl-7 text-sm text-gray-500 transition-colors hover:text-gray-700"
+                  >
+                    清空选择
+                  </button>
+                )}
+              </div>
+
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="flex min-w-0 items-center gap-2 overflow-x-auto whitespace-nowrap pb-0.5">
+                  <span className="shrink-0 text-xs font-medium text-gray-500">排序</span>
+                  {SORT_FIELD_OPTIONS.map(({ field, label }) => {
+                    const currentSort = sortState[field];
+
+                    return (
                       <div
+                        key={field}
                         className={clsx(
-                          "w-4 h-4 rounded border-2 flex items-center justify-center transition-colors",
-                          currentSort.enabled ? "bg-red-500 border-red-500" : "border-gray-300 bg-white"
+                          "flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1 transition-colors",
+                          currentSort.enabled
+                            ? "border-red-100 bg-white text-gray-700"
+                            : "border-gray-200 bg-white/70 text-gray-500"
                         )}
                       >
-                        {currentSort.enabled && (
-                          <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => toggleSortEnabled(field)}
+                          className="flex items-center"
+                          title={currentSort.enabled ? `取消${label}排序` : `启用${label}排序`}
+                        >
+                          <div
+                            className={clsx(
+                              "w-4 h-4 rounded border-2 flex items-center justify-center transition-colors",
+                              currentSort.enabled ? "bg-red-500 border-red-500" : "border-gray-300 bg-white"
+                            )}
+                          >
+                            {currentSort.enabled && (
+                              <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />
+                            )}
+                          </div>
+                        </button>
+                        <span className="text-xs font-medium">{label}</span>
+                        <select
+                          value={currentSort.direction}
+                          onChange={(event) =>
+                            updateSortDirection(field, event.target.value as SortDirection)
+                          }
+                          disabled={!currentSort.enabled}
+                          className="rounded-md border border-gray-200 bg-white px-1.5 py-0.5 text-xs text-gray-600 disabled:bg-gray-100 disabled:text-gray-300"
+                        >
+                          <option value="desc">倒序</option>
+                          <option value="asc">正序</option>
+                        </select>
                       </div>
-                    </button>
-                    <span className="text-xs font-medium text-gray-700">{label}</span>
-                    <select
-                      value={currentSort.direction}
-                      onChange={(event) =>
-                        updateSortDirection(field, event.target.value as SortDirection)
-                      }
-                      disabled={!currentSort.enabled}
-                      className="rounded-md border border-gray-200 bg-white px-1.5 py-1 text-xs text-gray-600 disabled:bg-gray-100 disabled:text-gray-300"
-                    >
-                      <option value="desc">倒序</option>
-                      <option value="asc">正序</option>
-                    </select>
+                    );
+                  })}
+                </div>
+
+                <div className="flex min-w-0 items-center gap-2 overflow-x-auto whitespace-nowrap pb-0.5">
+                  <div className="relative w-[300px] shrink-0">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="search"
+                      value={titleSearchKeyword}
+                      onChange={(event) => setTitleSearchKeyword(event.target.value)}
+                      placeholder="按标题搜索"
+                      className="h-9 w-full rounded-lg border border-gray-200 bg-white pl-9 pr-9 text-sm text-gray-700 outline-none transition-colors placeholder:text-gray-400 focus:border-red-300 focus:ring-2 focus:ring-red-50"
+                      spellCheck={false}
+                    />
+                    {titleSearchKeyword && (
+                      <button
+                        type="button"
+                        onClick={() => setTitleSearchKeyword("")}
+                        className="absolute right-2 top-1/2 rounded p-1 text-gray-400 transition-colors -translate-y-1/2 hover:bg-gray-100 hover:text-gray-600"
+                        title="清空搜索"
+                        aria-label="清空标题搜索"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
-                );
-              })}
-            </div>
-            <div className="flex flex-nowrap items-center gap-2">
-              <div className="relative w-[190px] shrink-0">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                <input
-                  type="search"
-                  value={titleSearchKeyword}
-                  onChange={(event) => setTitleSearchKeyword(event.target.value)}
-                  placeholder="按标题搜索"
-                  className="h-9 w-full rounded-lg border border-gray-200 bg-white pl-9 pr-9 text-sm text-gray-700 outline-none transition-colors placeholder:text-gray-400 focus:border-red-300 focus:ring-2 focus:ring-red-50"
-                  spellCheck={false}
-                />
-                {titleSearchKeyword && (
-                  <button
-                    type="button"
-                    onClick={() => setTitleSearchKeyword("")}
-                    className="absolute right-2 top-1/2 rounded p-1 text-gray-400 transition-colors -translate-y-1/2 hover:bg-gray-100 hover:text-gray-600"
-                    title="清空搜索"
-                    aria-label="清空标题搜索"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1">
-                <span className="text-xs font-medium text-gray-600">招聘方向</span>
-                {RECRUITMENT_DIRECTION_OPTIONS.map((option) => {
-                  const active = recruitmentDirectionFilter === option;
+                  <div className="flex shrink-0 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1">
+                    <span className="text-xs font-medium text-gray-600">招聘方向</span>
+                    {RECRUITMENT_DIRECTION_OPTIONS.map((option) => {
+                      const active = recruitmentDirectionFilter === option;
 
-                  return (
-                    <button
-                      key={option}
-                      type="button"
-                      onClick={() =>
-                        setRecruitmentDirectionFilter((current) =>
-                          current === option ? "" : option
-                        )
-                      }
-                      className={clsx(
-                        "rounded-md px-2 py-1 text-xs font-medium transition-colors",
-                        active
-                          ? "bg-red-500 text-white"
-                          : "text-gray-500 hover:bg-white hover:text-gray-700"
-                      )}
-                    >
-                      {option}
-                    </button>
-                  );
-                })}
-                {recruitmentDirectionFilter && (
-                  <button
-                    type="button"
-                    onClick={() => setRecruitmentDirectionFilter("")}
-                    className="rounded p-1 text-gray-400 transition-colors hover:bg-white hover:text-gray-600"
-                    title="清空招聘方向筛选"
-                    aria-label="清空招聘方向筛选"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1">
-                <span className="text-xs font-medium text-gray-600">发布人设</span>
-                {LIST_PUBLISH_PERSONA_FILTER_OPTIONS.map((option) => {
-                  const active = publishPersonaFilter === option;
+                      return (
+                        <button
+                          key={option}
+                          type="button"
+                          onClick={() =>
+                            setRecruitmentDirectionFilter((current) =>
+                              current === option ? "" : option
+                            )
+                          }
+                          className={clsx(
+                            "rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                            active
+                              ? "bg-red-500 text-white"
+                              : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                          )}
+                        >
+                          {option}
+                        </button>
+                      );
+                    })}
+                    {recruitmentDirectionFilter && (
+                      <button
+                        type="button"
+                        onClick={() => setRecruitmentDirectionFilter("")}
+                        className="rounded p-1 text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-600"
+                        title="清空招聘方向筛选"
+                        aria-label="清空招聘方向筛选"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1">
+                    <span className="text-xs font-medium text-gray-600">发布人设</span>
+                    {LIST_PUBLISH_PERSONA_FILTER_OPTIONS.map((option) => {
+                      const active = publishPersonaFilter === option;
 
-                  return (
+                      return (
+                        <button
+                          key={option}
+                          type="button"
+                          onClick={() =>
+                            setPublishPersonaFilter((current) =>
+                              current === option ? "" : option
+                            )
+                          }
+                          className={clsx(
+                            "rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                            active
+                              ? "bg-red-500 text-white"
+                              : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                          )}
+                        >
+                          {option}
+                        </button>
+                      );
+                    })}
+                    {publishPersonaFilter && (
+                      <button
+                        type="button"
+                        onClick={() => setPublishPersonaFilter("")}
+                        className="rounded p-1 text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-600"
+                        title="清空发布人设筛选"
+                        aria-label="清空发布人设筛选"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-600">
+                    <span>属性</span>
                     <button
-                      key={option}
                       type="button"
-                      onClick={() =>
-                        setPublishPersonaFilter((current) =>
-                          current === option ? "" : option
-                        )
-                      }
+                      onClick={() => setTestPostFilter((current) => !current)}
                       className={clsx(
-                        "rounded-md px-2 py-1 text-xs font-medium transition-colors",
-                        active
+                        "rounded-md px-2 py-1 transition-colors",
+                        testPostFilter
                           ? "bg-red-500 text-white"
-                          : "text-gray-500 hover:bg-white hover:text-gray-700"
+                          : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
                       )}
+                      aria-pressed={testPostFilter}
                     >
-                      {option}
+                      测试贴
                     </button>
-                  );
-                })}
-                {publishPersonaFilter && (
-                  <button
-                    type="button"
-                    onClick={() => setPublishPersonaFilter("")}
-                    className="rounded p-1 text-gray-400 transition-colors hover:bg-white hover:text-gray-600"
-                    title="清空发布人设筛选"
-                    aria-label="清空发布人设筛选"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => setTestPostFilter((current) => !current)}
-                className={clsx(
-                  "flex shrink-0 items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium transition-colors",
-                  testPostFilter
-                    ? "border-red-500 bg-red-500 text-white"
-                    : "border-gray-200 bg-gray-50 text-gray-600 hover:bg-white hover:text-gray-700"
-                )}
-                aria-pressed={testPostFilter}
-              >
-                <span>属性</span>
-                <span
-                  className={clsx(
-                    "rounded-md px-2 py-1 transition-colors",
-                    testPostFilter
-                      ? "bg-white/20 text-white"
-                      : "text-gray-500 hover:bg-white hover:text-gray-700"
+                  </div>
+                  {(titleSearchQuery || recruitmentDirectionFilter || publishPersonaFilter || testPostFilter) && (
+                    <span className="shrink-0 text-xs text-gray-400">
+                      匹配 {sortedRecords.length} / {collectRecords.length} 条
+                    </span>
                   )}
-                >
-                  测试贴
-                </span>
-              </button>
+                </div>
+              </div>
             </div>
-            {(titleSearchQuery || recruitmentDirectionFilter || publishPersonaFilter || testPostFilter) && (
-              <span className="text-xs text-gray-400">
-                匹配 {sortedRecords.length} / {collectRecords.length} 条
-              </span>
-            )}
-            {selectedRecordIds.size > 0 && (
-              <button
-                onClick={clearRecordSelection}
-                className="text-xs text-gray-500 hover:text-gray-700"
-              >
-                清空选择
-              </button>
-            )}
           </div>
         )}
       </div>
