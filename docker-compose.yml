@@ -21,14 +21,33 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
+        NEXT_PUBLIC_FEISHU_DOC_LIBRARY_URL: ${NEXT_PUBLIC_FEISHU_DOC_LIBRARY_URL:-}
     container_name: xhs-app
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
+      jimeng-api:
+        condition: service_started
     env_file:
       - .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-xhs_app}:${POSTGRES_PASSWORD:-xhs_app_password}@postgres:5432/${POSTGRES_DB:-xhs_app}?schema=public
+      JIMENG_API_BASE_URL: http://jimeng-api:5566
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
+
+  jimeng-api:
+    build:
+      context: ./services/jimeng-api
+      dockerfile: Dockerfile
+    container_name: xhs-app-jimeng-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SERVER_ENV: dev
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 5566
