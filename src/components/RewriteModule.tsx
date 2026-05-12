@@ -80,6 +80,36 @@ const LIBRARY_SCOPES: Array<{ scope: ReplaceLibraryScope; label: string; desc: s
   { scope: "body", label: "正文词库", desc: "只作用在正文生成" },
   { scope: "cover", label: "封面文案词库", desc: "只作用在封面文案生成" },
 ];
+const SAVE_DRAFT_TARGET_BATCH_BYTES = 16 * 1024 * 1024;
+const SAVE_DRAFT_MAX_BATCH_ITEMS = 4;
+const SAVE_DRAFT_SINGLE_ITEM_SOFT_LIMIT_BYTES = 90 * 1024 * 1024;
+const MAX_PARALLEL_REWRITES = 6;
+
+type SaveMessageState = {
+  text: string;
+  tone: "success" | "error" | "info";
+};
+type SaveDraftResponse = {
+  success?: boolean;
+  count?: number;
+  createdCount?: number;
+  failedCount?: number;
+  persistedResultIds?: unknown[];
+  failedResults?: Array<{ resultId?: unknown; error?: unknown }>;
+  tableId?: string;
+  tableName?: string;
+  newlyExtractedByScope?: unknown;
+  collectUpdateWarning?: unknown;
+  error?: string;
+};
+type SaveDraftBatchResult = {
+  data: SaveDraftResponse;
+  selected: RewriteResult[];
+};
+type ParsedFailedResult = {
+  resultId: string;
+  error: string;
+};
 
 async function callRewriteApi(payload: Record<string, unknown> & { signal?: AbortSignal }) {
   const { signal, ...body } = payload;
@@ -125,6 +155,36 @@ async function callJimengGenerate(payload: {
     throw new Error(data.error || "模板生成失败");
   }
   return data as { imageUrl?: string };
+}
+
+async function readApiJson<T extends { error?: string }>(
+  response: Response,
+  fallbackMessage: string
+): Promise<T> {
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    try {
+      return (await response.json()) as T;
+    } catch {
+      return { error: fallbackMessage } as T;
+    }
+  }
+
+  const rawText = await response.text().catch(() => "");
+  if (response.status === 413) {
+    return {
+      error: "保存内容过大，请减少一次保存数量，或压缩/更换封面后重试。",
+    } as T;
+  }
+
+  return {
+    error:
+      rawText
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 120) || fallbackMessage,
+  } as T;
 }
 
 async function readImageSize(src: string) {
@@ -499,6 +559,128 @@ function buildCurrentTrackedEditBaseline(
   });
 }
 
+function isDataImage(value: string | undefined) {
+  return Boolean(value && /^data:image\//i.test(value));
+}
+
+function estimateJsonBytes(value: unknown) {
+  return new Blob([JSON.stringify(value)]).size;
+}
+
+function compactOriginalNoteForSave(note: RewriteResult["originalNote"]) {
+  return {
+    recordId: note.recordId,
+    noteLink: note.noteLink,
+    cover: note.cover,
+    coverAttachmentToken: note.coverAttachmentToken,
+    coverText: note.coverText,
+    originalTitle: note.originalTitle,
+    originalBody: note.originalBody,
+    originalTags: note.originalTags,
+    publishPersona: note.publishPersona,
+    recruitmentDirection: note.recruitmentDirection,
+  };
+}
+
+function mergeExtractedByScope(
+  values: unknown[]
+): ExtractedReplaceInfoByScope {
+  const merged: ExtractedReplaceInfoByScope = {
+    title: [],
+    body: [],
+    cover: [],
+  };
+
+  values.forEach((value) => {
+    const normalized = normalizeExtractedByScope(value);
+    LIBRARY_SCOPES.forEach((item) => {
+      merged[item.scope].push(...normalized[item.scope]);
+    });
+  });
+
+  return merged;
+}
+
+function parsePersistedIds(values: unknown[]) {
+  return new Set(
+    values.filter((item): item is string => typeof item === "string")
+  );
+}
+
+function parseFailedResults(values: unknown[]): ParsedFailedResult[] {
+  return values
+    .filter((item): item is { resultId?: unknown; error?: unknown } =>
+      Boolean(item) && typeof item === "object"
+    )
+    .map((item) => ({
+      resultId: typeof item.resultId === "string" ? item.resultId : "",
+      error: typeof item.error === "string" ? item.error : "保存失败",
+    }));
+}
+
+function buildSaveDraftResult(result: RewriteResult): RewriteResult {
+  return {
+    id: result.id,
+    recordId: result.recordId,
+    batchIndex: result.batchIndex,
+    batchTotal: result.batchTotal,
+    originalNote: compactOriginalNoteForSave(result.originalNote) as RewriteResult["originalNote"],
+    rewrittenTitle: result.rewrittenTitle,
+    rewrittenBody: result.rewrittenBody,
+    rewrittenCover: result.rewrittenCover,
+    rewrittenCoverText: result.rewrittenCoverText,
+    coverTemplateFamilyId: result.coverTemplateFamilyId,
+    coverTemplateVariantId: result.coverTemplateVariantId,
+    coverBaseImage: result.coverBaseImage,
+    rewrittenTags: result.rewrittenTags,
+    rewriteRemark: result.rewriteRemark,
+    publishPersona: result.publishPersona,
+    recruitmentDirection: result.recruitmentDirection,
+    titleReplaceInfo: result.titleReplaceInfo,
+    bodyReplaceInfo: result.bodyReplaceInfo,
+    coverReplaceInfo: result.coverReplaceInfo,
+    savedFingerprint: result.savedFingerprint,
+    fieldModifiedAt: result.fieldModifiedAt,
+    lastModifiedAt: result.lastModifiedAt,
+    status: result.status,
+    errorMsg: result.errorMsg,
+  };
+}
+
+function buildSaveDraftBatches(results: RewriteResult[]): RewriteResult[][] {
+  const batches: RewriteResult[][] = [];
+  let currentBatch: RewriteResult[] = [];
+  let currentBytes = 0;
+
+  for (const result of results) {
+    const compactResult = buildSaveDraftResult(result);
+    const resultBytes = estimateJsonBytes(compactResult);
+
+    if (
+      currentBatch.length > 0 &&
+      (currentBytes + resultBytes > SAVE_DRAFT_TARGET_BATCH_BYTES ||
+        currentBatch.length >= SAVE_DRAFT_MAX_BATCH_ITEMS)
+    ) {
+      batches.push(currentBatch);
+      currentBatch = [];
+      currentBytes = 0;
+    }
+
+    currentBatch.push(compactResult);
+    currentBytes += resultBytes;
+  }
+
+  if (currentBatch.length > 0) batches.push(currentBatch);
+  return batches;
+}
+
+function getOversizedSaveItems(results: RewriteResult[]) {
+  return results.filter((result) => {
+    if (!isDataImage(result.rewrittenCover)) return false;
+    return estimateJsonBytes(buildSaveDraftResult(result)) > SAVE_DRAFT_SINGLE_ITEM_SOFT_LIMIT_BYTES;
+  });
+}
+
 function mergeTrackedEditBaseline(
   result: RewriteResult,
   updates: Partial<RewriteEditBaseline>
@@ -754,7 +936,7 @@ export default function RewriteModule() {
   useCoverTemplateLibraryPersistence();
 
   const [saving, setSaving] = useState(false);
-  const [saveMsg, setSaveMsg] = useState("");
+  const [saveMsg, setSaveMsg] = useState<SaveMessageState | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [bulkExpanded, setBulkExpanded] = useState(true);
   const [bulkExpandVersion, setBulkExpandVersion] = useState(0);
@@ -766,6 +948,17 @@ export default function RewriteModule() {
     createEmptyPendingExtractedEntries
   );
   const rewriteAbortControllersRef = useRef(new Map<string, AbortController>());
+  const showSaveMessage = useCallback(
+    (text: string, tone: SaveMessageState["tone"] = "success", timeoutMs = 2000) => {
+      setSaveMsg({ text, tone });
+      if (timeoutMs <= 0) return;
+
+      window.setTimeout(() => {
+        setSaveMsg((current) => (current?.text === text ? null : current));
+      }, timeoutMs);
+    },
+    []
+  );
 
   const collectRecordMap = useMemo(
     () =>
@@ -1041,10 +1234,7 @@ export default function RewriteModule() {
           e instanceof Error
             ? `${RETRY_FIELD_LABELS[field]}重试失败：${e.message}`
             : `${RETRY_FIELD_LABELS[field]}重试失败`;
-        setSaveMsg(message);
-        window.setTimeout(() => {
-          setSaveMsg((currentMsg) => (currentMsg === message ? "" : currentMsg));
-        }, 3000);
+        showSaveMessage(message, "error", 3000);
         throw e;
       }
     },
@@ -1053,6 +1243,7 @@ export default function RewriteModule() {
       customTemplates,
       ensureOriginalCoverText,
       getActiveReplaceInfo,
+      showSaveMessage,
       updateRewriteResult,
     ]
   );
@@ -1264,8 +1455,29 @@ export default function RewriteModule() {
   }, []);
 
   useEffect(() => {
+    const orphanProcessingIds = rewriteResults
+      .filter(
+        (item) =>
+          item.status === "processing" &&
+          !rewriteAbortControllersRef.current.has(item.id)
+      )
+      .map((item) => item.id);
+
+    orphanProcessingIds.forEach((id) => {
+      updateRewriteResult(id, {
+        status: "pending",
+        errorMsg: undefined,
+      });
+    });
+  }, [rewriteResults, updateRewriteResult]);
+
+  useEffect(() => {
+    const activeCount = rewriteAbortControllersRef.current.size;
+    if (activeCount >= MAX_PARALLEL_REWRITES) return;
+
     const pendingIds = rewriteResults
       .filter((item) => item.status === "pending")
+      .slice(0, MAX_PARALLEL_REWRITES - activeCount)
       .map((item) => item.id);
 
     pendingIds.forEach((id) => {
@@ -1283,41 +1495,67 @@ export default function RewriteModule() {
     if (selected.length === 0) return;
 
     setSaving(true);
-    setSaveMsg("");
+    setSaveMsg(null);
 
     try {
-      const res = await apiFetch("/api/feishu/save-draft", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          results: selected,
-          extractReplacePromptTemplate: extractReplacePrompt,
-          extractReplacePromptMode: getExtractPromptMode(),
-          extractPromptIncludesOriginalAndRewritten:
-            extractPromptHasInlineOriginalAndRewritten(),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "保存失败");
+      const oversizedItems = getOversizedSaveItems(selected);
+      if (oversizedItems.length > 0) {
+        throw new Error(
+          `有 ${oversizedItems.length} 条二创封面过大，请先更换/重新生成封面后再保存。`
+        );
+      }
 
-      const persistedIds = new Set(
-        Array.isArray(data.persistedResultIds)
-          ? (data.persistedResultIds as unknown[]).filter(
-              (item): item is string => typeof item === "string"
-            )
-          : []
+      const batches = buildSaveDraftBatches(selected);
+      const batchResults: SaveDraftBatchResult[] = [];
+      const extractReplacePromptMode = getExtractPromptMode();
+      const extractPromptIncludesOriginalAndRewritten =
+        extractPromptHasInlineOriginalAndRewritten();
+
+      for (let index = 0; index < batches.length; index += 1) {
+        const batch = batches[index];
+        if (batches.length > 1) {
+          const savedBefore = batchResults.reduce(
+            (sum, item) => sum + (item.data.createdCount || 0),
+            0
+          );
+          setSaveMsg({
+            tone: "info",
+            text: `正在分批保存 ${index + 1}/${batches.length}，已写入 ${savedBefore}/${selected.length} 条`,
+          });
+        }
+
+        const res = await apiFetch("/api/feishu/save-draft", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            results: batch,
+            extractReplacePromptTemplate: extractReplacePrompt,
+            extractReplacePromptMode,
+            extractPromptIncludesOriginalAndRewritten,
+          }),
+        });
+        const data = await readApiJson<SaveDraftResponse>(res, "保存失败");
+        if (!res.ok) throw new Error(data.error || "保存失败");
+        batchResults.push({ data, selected: batch });
+      }
+
+      const persistedIds = parsePersistedIds(
+        batchResults.flatMap((item) =>
+          Array.isArray(item.data.persistedResultIds) ? item.data.persistedResultIds : []
+        )
       );
-      const failedResults = Array.isArray(data.failedResults)
-        ? (data.failedResults as Array<{ resultId?: unknown; error?: unknown }>).map((item) => ({
-            resultId: typeof item?.resultId === "string" ? item.resultId : "",
-            error: typeof item?.error === "string" ? item.error : "保存失败",
-          }))
-        : [];
+      const failedResults = parseFailedResults(
+        batchResults.flatMap((item) =>
+          Array.isArray(item.data.failedResults) ? item.data.failedResults : []
+        )
+      );
       const persistedResults = selected.filter((item) => persistedIds.has(item.id));
       const persistedCount = persistedResults.length;
       const failedCount = failedResults.length;
 
-      const extractedByScope = normalizeExtractedByScope(data.newlyExtractedByScope);
+      const extractedByScope = mergeExtractedByScope(
+        batchResults.map((item) => item.data.newlyExtractedByScope)
+      );
       const autoMergedEntriesByScope: PendingExtractedEntriesByScope = autoMergeExtractedEntries
         ? {
             title: collectUniqueExtractedEntries(extractedByScope.title, existingEntriesByScope.title),
@@ -1398,9 +1636,10 @@ export default function RewriteModule() {
           id: Date.now().toString(),
           savedAt: new Date().toISOString(),
           rewriteResults: persistedResults,
-          feishuTableId: data.tableId,
-          feishuTableName: data.tableName,
-          targetLabel: data.tableName || "二创库",
+          feishuTableId: batchResults.find((item) => item.data.tableId)?.data.tableId,
+          feishuTableName: batchResults.find((item) => item.data.tableName)?.data.tableName,
+          targetLabel:
+            batchResults.find((item) => item.data.tableName)?.data.tableName || "二创库",
         });
 
         deselectRewriteIds(Array.from(persistedIds));
@@ -1461,8 +1700,13 @@ export default function RewriteModule() {
         }
       }
 
-      const collectUpdateWarning =
-        typeof data.collectUpdateWarning === "string" ? data.collectUpdateWarning.trim() : "";
+      const collectUpdateWarning = batchResults
+        .map((item) =>
+          typeof item.data.collectUpdateWarning === "string"
+            ? item.data.collectUpdateWarning.trim()
+            : ""
+        )
+        .find(Boolean) || "";
       let nextMessage = "";
 
       if (persistedCount > 0) {
@@ -1495,19 +1739,25 @@ export default function RewriteModule() {
         nextMessage = "保存失败";
       }
 
-      setSaveMsg(nextMessage);
+      setSaveMsg({
+        text: nextMessage,
+        tone: persistedCount > 0 && failedCount === 0 ? "success" : "error",
+      });
 
       if (persistedCount > 0 && failedCount === 0) {
         window.setTimeout(() => {
-          setSaveMsg("");
+          setSaveMsg(null);
         }, 2000);
       } else if (persistedCount > 0) {
         window.setTimeout(() => {
-          setSaveMsg("");
+          setSaveMsg(null);
         }, 4000);
       }
     } catch (e: unknown) {
-      setSaveMsg(e instanceof Error ? e.message : "保存失败");
+      setSaveMsg({
+        text: e instanceof Error ? e.message : "保存失败",
+        tone: "error",
+      });
     } finally {
       setSaving(false);
     }
@@ -1518,8 +1768,7 @@ export default function RewriteModule() {
     const confirmed = window.confirm(`确认删除已选中的 ${selectedRewriteIds.size} 条二创记录吗？`);
     if (!confirmed) return;
     deleteRewriteResults(Array.from(selectedRewriteIds));
-    setSaveMsg(`已删除 ${selectedRewriteIds.size} 条二创记录`);
-    window.setTimeout(() => setSaveMsg(""), 2000);
+    showSaveMessage(`已删除 ${selectedRewriteIds.size} 条二创记录`);
   }
 
   function handleImportPendingEntries(scope: ReplaceLibraryScope) {
@@ -1527,20 +1776,18 @@ export default function RewriteModule() {
       (entry) => entry.original.trim() && entry.replacement.trim()
     );
     if (scopeEntries.length === 0) {
-      setSaveMsg("待确认区没有可导入的有效词条");
-      window.setTimeout(() => setSaveMsg(""), 2000);
+      showSaveMessage("待确认区没有可导入的有效词条", "info");
       return;
     }
 
     mergeExtractedEntries(scope, stringifyReplaceEntries(scopeEntries));
-    setSaveMsg(
+    showSaveMessage(
       `已导入 ${scopeEntries.length} 条到${LIBRARY_SCOPES.find((item) => item.scope === scope)?.label}`
     );
     setPendingExtractedEntries((prev) => ({
       ...prev,
       [scope]: [],
     }));
-    window.setTimeout(() => setSaveMsg(""), 2000);
   }
 
   function handleUpdatePendingEntry(
@@ -1566,12 +1813,14 @@ export default function RewriteModule() {
   function handleDismissPendingEntries(scope: ReplaceLibraryScope) {
     const scopeCount = pendingExtractedEntries[scope].length;
     if (scopeCount === 0) return;
-    setSaveMsg(`已忽略 ${scopeCount} 条${LIBRARY_SCOPES.find((item) => item.scope === scope)?.label}待确认词条`);
+    showSaveMessage(
+      `已忽略 ${scopeCount} 条${LIBRARY_SCOPES.find((item) => item.scope === scope)?.label}待确认词条`,
+      "info"
+    );
     setPendingExtractedEntries((prev) => ({
       ...prev,
       [scope]: [],
     }));
-    window.setTimeout(() => setSaveMsg(""), 2000);
   }
 
   function handleResetReplaceLibraries() {
@@ -1579,8 +1828,7 @@ export default function RewriteModule() {
     if (!confirmed) return;
 
     resetToPresets();
-    setSaveMsg("已恢复默认替换词库");
-    window.setTimeout(() => setSaveMsg(""), 2000);
+    showSaveMessage("已恢复默认替换词库");
   }
 
   function applyBulkSingleSelect(
@@ -1621,8 +1869,10 @@ export default function RewriteModule() {
     });
 
     setBulkMenuOpen(null);
-    setSaveMsg(shouldClear ? `已取消批量${label}：${value}` : `已批量设置${label}：${value}`);
-    window.setTimeout(() => setSaveMsg(""), 2000);
+    showSaveMessage(
+      shouldClear ? `已取消批量${label}：${value}` : `已批量设置${label}：${value}`,
+      "info"
+    );
   }
 
   function handleBulkGeneratedEditToggle() {
@@ -1635,12 +1885,12 @@ export default function RewriteModule() {
       version: (current?.version || 0) + 1,
       action,
     }));
-    setSaveMsg(
+    showSaveMessage(
       action === "open"
         ? `已打开 ${editableCount} 条笔记的编辑框`
-        : `已提交保存 ${editableCount} 条笔记的编辑内容`
+        : `已提交保存 ${editableCount} 条笔记的编辑内容`,
+      "info"
     );
-    window.setTimeout(() => setSaveMsg(""), 2000);
   }
 
   const doneCount = rewriteResults.filter((item) => item.status === "done").length;
@@ -1665,8 +1915,7 @@ export default function RewriteModule() {
     if (processingCount > 0) {
       const processingResults = rewriteResults.filter((item) => item.status === "processing");
       processingResults.forEach((item) => stopRewrite(item.id));
-      setSaveMsg(`已停止 ${processingResults.length} 条生成中的笔记`);
-      window.setTimeout(() => setSaveMsg(""), 2000);
+      showSaveMessage(`已停止 ${processingResults.length} 条生成中的笔记`, "info");
       return;
     }
 
@@ -1679,8 +1928,7 @@ export default function RewriteModule() {
         errorMsg: undefined,
       });
     });
-    setSaveMsg(`已继续生成 ${stoppedResults.length} 条已停止的笔记`);
-    window.setTimeout(() => setSaveMsg(""), 2000);
+    showSaveMessage(`已继续生成 ${stoppedResults.length} 条已停止的笔记`, "info");
   }
 
   return (
@@ -1797,10 +2045,14 @@ export default function RewriteModule() {
               <span
                 className={clsx(
                   "text-sm px-3 py-1 rounded-full",
-                  saveMsg.includes("失败") ? "text-red-600 bg-red-50" : "text-green-600 bg-green-50"
+                  saveMsg.tone === "error"
+                    ? "text-red-600 bg-red-50"
+                    : saveMsg.tone === "info"
+                      ? "text-amber-600 bg-amber-50"
+                      : "text-green-600 bg-green-50"
                 )}
               >
-                {saveMsg}
+                {saveMsg.text}
               </span>
             )}
             {selectedRewriteIds.size > 0 && (

@@ -13,6 +13,7 @@ type FittedCoverLayout = {
 };
 
 const loadedImageCache = new Map<string, Promise<HTMLImageElement>>();
+const MAX_RENDERED_COVER_LONG_EDGE = 960;
 
 function loadImage(src: string) {
   const normalized = src.trim();
@@ -81,6 +82,19 @@ function buildFont(fontSize: number, layout: CoverTemplateLayout) {
   return `${layout.fontWeight} ${fontSize}px ${layout.fontFamily}`;
 }
 
+export function canvasToCompressedDataUrl(
+  canvas: HTMLCanvasElement,
+  quality = 0.82
+) {
+  const webp = canvas.toDataURL("image/webp", quality);
+  if (webp.startsWith("data:image/webp")) return webp;
+
+  const jpeg = canvas.toDataURL("image/jpeg", quality);
+  if (jpeg.startsWith("data:image/jpeg")) return jpeg;
+
+  return canvas.toDataURL("image/png");
+}
+
 function fitCoverText(
   context: CanvasRenderingContext2D,
   text: string,
@@ -119,10 +133,16 @@ export async function composeCoverImage({
 }: ComposeCoverImageParams) {
   const layoutProfile = getCoverLayoutProfile(layoutId);
   const baseImage = await loadImage(baseImageSrc);
+  const sourceWidth = baseImage.naturalWidth || 576;
+  const sourceHeight = baseImage.naturalHeight || 768;
+  const scale = Math.min(
+    1,
+    MAX_RENDERED_COVER_LONG_EDGE / Math.max(sourceWidth, sourceHeight)
+  );
 
   const canvas = document.createElement("canvas");
-  canvas.width = baseImage.naturalWidth || 576;
-  canvas.height = baseImage.naturalHeight || 768;
+  canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+  canvas.height = Math.max(1, Math.round(sourceHeight * scale));
 
   const context = canvas.getContext("2d");
   if (!context) {
@@ -161,5 +181,5 @@ export async function composeCoverImage({
     });
   }
 
-  return canvas.toDataURL("image/png");
+  return canvasToCompressedDataUrl(canvas);
 }

@@ -14,6 +14,16 @@ const DASHSCOPE_TEXT_MODEL = runtimeConfig.dashscope.textModel;
 const DASHSCOPE_VISION_MODEL = runtimeConfig.dashscope.visionModel;
 type PromptMode = "default" | "custom";
 
+function isRequestAbortError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  return (
+    error.name === "AbortError" ||
+    error.message.includes("Unexpected end of JSON input") ||
+    error.message.toLowerCase().includes("aborted") ||
+    (error as NodeJS.ErrnoException).code === "ECONNRESET"
+  );
+}
+
 function normalizePromptMode(value: unknown): PromptMode {
   return value === "custom" ? "custom" : "default";
 }
@@ -258,6 +268,10 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ error: `未知type: ${type}` }, { status: 400 });
   } catch (e: unknown) {
+    if (isRequestAbortError(e)) {
+      return NextResponse.json({ error: "请求已取消" }, { status: 499 });
+    }
+
     const authResponse = authErrorResponse(e);
     if (authResponse) return authResponse;
 
