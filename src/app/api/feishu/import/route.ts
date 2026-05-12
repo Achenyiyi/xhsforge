@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authErrorResponse, requireUser } from "@/lib/auth";
+import { authErrorResponse, getUserDisplayName, requireUser } from "@/lib/auth";
 import {
   createCollectRecords,
   getCollectRecords,
@@ -428,7 +428,8 @@ async function uploadNoteCover(note: XHSNote) {
 
 export async function POST(req: NextRequest) {
   try {
-    await requireUser();
+    const { user } = await requireUser();
+    const collectorName = getUserDisplayName(user);
 
     const { notes, keyword }: { notes: XHSNote[]; keyword: string } = await req.json();
 
@@ -444,6 +445,7 @@ export async function POST(req: NextRequest) {
     assertFieldTypeIfPresent(fieldTypeMap, "笔记链接", FIELD_TYPE_URL);
     assertFieldTypeIfPresent(fieldTypeMap, "封面", FIELD_TYPE_ATTACHMENT);
     assertFieldTypeIfPresent(fieldTypeMap, "封面文案", FIELD_TYPE_TEXT);
+    assertFieldTypeIfPresent(fieldTypeMap, "线索收集人", FIELD_TYPE_TEXT);
     assertFieldTypeInIfPresent(fieldTypeMap, "发布人设", [
       FIELD_TYPE_TEXT,
       FIELD_TYPE_SINGLE_SELECT,
@@ -521,6 +523,7 @@ export async function POST(req: NextRequest) {
       const normalizedCoverText = sanitizeExtractedImageText(note.coverText || "");
       setIfFieldExists(fields, fieldTypeMap, "采集日期", collectTimestamp);
       setIfFieldHasValue(fields, fieldTypeMap, "搜索关键词", keyword);
+      setIfFieldHasValue(fields, fieldTypeMap, "线索收集人", collectorName);
       setIfFieldHasValue(fields, fieldTypeMap, "标题", note.title);
       setIfFieldHasValue(fields, fieldTypeMap, "正文", note.desc);
       setIfFieldExists(fields, fieldTypeMap, "点赞数", note.likedCount || 0);

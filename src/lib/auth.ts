@@ -63,6 +63,10 @@ export function buildAvatarInitial(nickname: string, email: string) {
   return Array.from(source)[0]?.toUpperCase() || "U";
 }
 
+export function getUserDisplayName(user: Pick<User, "nickname" | "email">) {
+  return user.nickname.trim() || user.email;
+}
+
 export function buildAvatarColor(input: string) {
   const colors = [
     "#ef4444",

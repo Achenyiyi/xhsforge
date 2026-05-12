@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authErrorResponse, requireUser } from "@/lib/auth";
+import { authErrorResponse, getUserDisplayName, requireUser } from "@/lib/auth";
 import {
   createRecordsInTable,
   updateCollectRecords,
@@ -48,6 +48,7 @@ const REWRITE_TABLE_FIELDS = [
   { field_name: "标题", type: FIELD_TYPE_TEXT },
   { field_name: "正文", type: FIELD_TYPE_TEXT },
   { field_name: "标签", type: FIELD_TYPE_TEXT },
+  { field_name: "二创人", type: FIELD_TYPE_TEXT },
   { field_name: "二创封面", type: FIELD_TYPE_ATTACHMENT },
   { field_name: "二创封面文案", type: FIELD_TYPE_TEXT },
   { field_name: "二创标题", type: FIELD_TYPE_TEXT },
@@ -538,6 +539,12 @@ async function ensureRewriteTable() {
     FIELD_TYPE_TEXT,
     "二创库字段「备注」当前不是文本字段，无法写入备注。请在飞书里把它改成单行文本或多行文本。"
   );
+  assertFieldTypeOrThrow(
+    fieldTypeMap,
+    "二创人",
+    FIELD_TYPE_TEXT,
+    "二创库字段「二创人」当前不是文本字段，无法写入当前用户昵称。请在飞书里把它改成单行文本或多行文本。"
+  );
   assertFieldTypeOrThrow(fieldTypeMap, REFERENCE_COVER_FIELD_NAME, FIELD_TYPE_ATTACHMENT);
   assertFieldTypeOrThrow(fieldTypeMap, "二创封面", FIELD_TYPE_ATTACHMENT);
 
@@ -552,10 +559,18 @@ function buildRewriteTableFields(params: {
   result: RewriteResult;
   rewriteFields: Array<{ field_name: string; type: number }>;
   rewriteTimestamp: number;
+  rewriterName: string;
   originalCoverAttachment?: Awaited<ReturnType<typeof uploadAttachmentToBitable>>;
   draftCoverAttachment?: Awaited<ReturnType<typeof uploadAttachmentToBitable>>;
 }) {
-  const { result, rewriteFields, rewriteTimestamp, originalCoverAttachment, draftCoverAttachment } = params;
+  const {
+    result,
+    rewriteFields,
+    rewriteTimestamp,
+    rewriterName,
+    originalCoverAttachment,
+    draftCoverAttachment,
+  } = params;
   const inheritedTags = buildInheritedTags(result);
   const usedReplaceInfo = buildUsedReplaceInfo(result);
   const combinedReplaceInfoSnapshot = buildCombinedReplaceInfoSnapshot(usedReplaceInfo);
@@ -584,6 +599,7 @@ function buildRewriteTableFields(params: {
     "标签",
     formatTagsForStorage(result.originalNote.originalTags || [])
   );
+  setIfFieldHasValue(fields, targetFieldTypeMap, "二创人", rewriterName);
   setIfFieldHasValue(fields, targetFieldTypeMap, "封面文案", normalizedOriginalCoverText);
   setIfFieldHasValue(fields, targetFieldTypeMap, "二创标题", result.rewrittenTitle);
   setIfFieldHasValue(fields, targetFieldTypeMap, "二创正文", result.rewrittenBody);
@@ -668,7 +684,8 @@ function normalizeRewrittenCoverTextForStorage(value: string) {
 
 export async function POST(req: NextRequest) {
   try {
-    await requireUser();
+    const { user } = await requireUser();
+    const rewriterName = getUserDisplayName(user);
 
     const {
       results,
@@ -782,6 +799,7 @@ export async function POST(req: NextRequest) {
           result,
           rewriteFields,
           rewriteTimestamp,
+          rewriterName,
           originalCoverAttachment: originalCoverAttachment || undefined,
           draftCoverAttachment: draftCoverAttachment || undefined,
         }),
