@@ -30,6 +30,23 @@ function normalizeStringArray(value: unknown) {
   return value.filter((item): item is string => typeof item === "string");
 }
 
+function filterDeletedRewriteResults(payload: unknown) {
+  const normalized = normalizePayload(payload);
+  const deletedRewriteResultIds = normalizeStringArray(normalized.deletedRewriteResultIds);
+  if (deletedRewriteResultIds.length === 0 || !Array.isArray(normalized.rewriteResults)) {
+    return normalized;
+  }
+
+  const deletedIdSet = new Set(deletedRewriteResultIds);
+  return {
+    ...normalized,
+    rewriteResults: normalized.rewriteResults.filter((result) => {
+      const id = getRewriteResultId(result);
+      return !id || !deletedIdSet.has(id);
+    }),
+  };
+}
+
 function mergeWorkspaceSnapshotPayload(
   incomingPayload: unknown,
   existingPayload: Prisma.JsonValue | null | undefined
@@ -81,11 +98,21 @@ export async function GET() {
         snapshots.map((snapshot) => [
           snapshot.key,
           {
-            payload: snapshot.payload,
+            payload:
+              snapshot.key === "workspace-snapshot"
+                ? filterDeletedRewriteResults(snapshot.payload)
+                : snapshot.payload,
             updatedAt: snapshot.updatedAt.toISOString(),
           },
         ])
       ),
+    }, {
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        Pragma: "no-cache",
+        Expires: "0",
+        "Surrogate-Control": "no-store",
+      },
     });
   } catch (error) {
     const authResponse = authErrorResponse(error);
@@ -144,7 +171,14 @@ export async function PUT(req: NextRequest) {
       }
     });
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true }, {
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        Pragma: "no-cache",
+        Expires: "0",
+        "Surrogate-Control": "no-store",
+      },
+    });
   } catch (error) {
     const authResponse = authErrorResponse(error);
     if (authResponse) return authResponse;

@@ -186,39 +186,26 @@ export default function AdvancedSettingsModule() {
     setError("");
   }
 
-  function handleReset(section: PromptSection) {
-    setDrafts((current) => ({
-      ...(current ?? persistedPrompts),
-      [section.key]: section.defaultValue,
-    }));
-    setSaved(false);
-    setError("");
-  }
-
-  function handleResetAll() {
+  function buildDefaultPrompts() {
     const reset: Record<string, string> = {};
     SECTIONS.forEach((section) => {
       reset[section.key] = section.defaultValue;
     });
-    setDrafts(reset);
-    setSaved(false);
-    setError("");
+    return reset;
   }
 
-  async function handleSave() {
+  async function handleSavePrompts(nextPrompts: Record<string, string>) {
     setSaving(true);
     setError("");
 
     try {
-      const nextPrompts = {
-        bodyRewritePrompt: effectiveDrafts.bodyRewritePrompt,
-        titleRewritePrompt: effectiveDrafts.titleRewritePrompt,
-        coverRewritePrompt: effectiveDrafts.coverRewritePrompt,
-        extractReplacePrompt: effectiveDrafts.extractReplacePrompt,
-      };
-
       await saveWorkspaceSnapshot("prompts-settings", {
-        state: nextPrompts,
+        state: {
+          bodyRewritePrompt: nextPrompts.bodyRewritePrompt,
+          titleRewritePrompt: nextPrompts.titleRewritePrompt,
+          coverRewritePrompt: nextPrompts.coverRewritePrompt,
+          extractReplacePrompt: nextPrompts.extractReplacePrompt,
+        },
         version: 0,
       });
 
@@ -236,6 +223,32 @@ export default function AdvancedSettingsModule() {
     }
   }
 
+  function handleReset(section: PromptSection) {
+    setDrafts((current) => ({
+      ...(current ?? persistedPrompts),
+      [section.key]: section.defaultValue,
+    }));
+    setSaved(false);
+    setError("");
+  }
+
+  async function handleResetAll() {
+    const reset = buildDefaultPrompts();
+    setDrafts(reset);
+    setSaved(false);
+    setError("");
+    await handleSavePrompts(reset);
+  }
+
+  async function handleSave() {
+    await handleSavePrompts({
+      bodyRewritePrompt: effectiveDrafts.bodyRewritePrompt,
+      titleRewritePrompt: effectiveDrafts.titleRewritePrompt,
+      coverRewritePrompt: effectiveDrafts.coverRewritePrompt,
+      extractReplacePrompt: effectiveDrafts.extractReplacePrompt,
+    });
+  }
+
   return (
     <div className="flex flex-col h-full bg-gray-50">
       <div className="flex-shrink-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
@@ -247,14 +260,15 @@ export default function AdvancedSettingsModule() {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={handleResetAll}
-            className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+            onClick={() => void handleResetAll()}
+            disabled={saving}
+            className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-300 transition-colors"
           >
             <RotateCcw className="w-4 h-4" />
-            重置提示词
+            {saving ? "保存中..." : "重置提示词"}
           </button>
           <button
-            onClick={handleSave}
+            onClick={() => void handleSave()}
             disabled={!hasChanges || saving}
             className={clsx(
               "flex items-center gap-1.5 text-sm px-4 py-1.5 rounded-lg font-medium transition-colors",

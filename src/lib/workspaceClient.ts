@@ -19,8 +19,12 @@ type WorkspaceResponse<T> = {
 };
 
 export async function loadWorkspaceSnapshot<T>(key: WorkspaceSnapshotKey): Promise<T | null> {
-  const response = await apiFetch("/api/workspace", {
+  const response = await apiFetch(`/api/workspace?t=${Date.now()}`, {
     cache: "no-store",
+    headers: {
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache",
+    },
   });
 
   if (!response.ok) return null;
@@ -34,7 +38,12 @@ export async function saveWorkspaceSnapshots(
 ) {
   const response = await apiFetch("/api/workspace", {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache",
+    },
     body: JSON.stringify({ snapshots }),
   });
 

@@ -7,6 +7,22 @@ import { useAppStore, type WorkspaceSnapshot } from "@/store/appStore";
 
 const SAVE_DELAY_MS = 250;
 
+function filterDeletedRewriteResults(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
+  const deletedIds = new Set(
+    Array.isArray((snapshot as { deletedRewriteResultIds?: unknown }).deletedRewriteResultIds)
+      ? ((snapshot as { deletedRewriteResultIds?: unknown[] }).deletedRewriteResultIds ?? [])
+          .filter((id): id is string => typeof id === "string")
+      : []
+  );
+
+  if (deletedIds.size === 0) return snapshot;
+
+  return {
+    ...snapshot,
+    rewriteResults: (snapshot.rewriteResults ?? []).filter((result) => !deletedIds.has(result.id)),
+  };
+}
+
 export function useWorkspacePersistence() {
   const setHasHydrated = useAppStore((state) => state.setHasHydrated);
   const searchHistories = useAppStore((state) => state.searchHistories);
@@ -29,10 +45,12 @@ export function useWorkspacePersistence() {
           return;
         }
 
-        setSearchHistories(snapshot.searchHistories ?? []);
-        setCrawlResults(snapshot.crawlResults ?? []);
-        setRewriteResults(snapshot.rewriteResults ?? []);
-        setDraftRecords(snapshot.draftRecords ?? []);
+        const nextSnapshot = filterDeletedRewriteResults(snapshot);
+
+        setSearchHistories(nextSnapshot.searchHistories ?? []);
+        setCrawlResults(nextSnapshot.crawlResults ?? []);
+        setRewriteResults(nextSnapshot.rewriteResults ?? []);
+        setDraftRecords(nextSnapshot.draftRecords ?? []);
       } catch (error) {
         console.error("恢复本地工作区快照失败:", error);
       } finally {
