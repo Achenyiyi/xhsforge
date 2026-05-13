@@ -25,6 +25,8 @@ const DEFAULT_CRAWL_FILTERS: SearchFilters = {
 interface AppState {
   hasHydrated: boolean;
   setHasHydrated: (hydrated: boolean) => void;
+  uiHasHydrated: boolean;
+  setUiHasHydrated: (hydrated: boolean) => void;
 
   activeModule: ActiveModule;
   setActiveModule: (module: ActiveModule) => void;
@@ -82,6 +84,8 @@ export const useAppStore = create<AppState>()(
     (set) => ({
       hasHydrated: false,
       setHasHydrated: (hydrated) => set({ hasHydrated: hydrated }),
+      uiHasHydrated: false,
+      setUiHasHydrated: (hydrated) => set({ uiHasHydrated: hydrated }),
 
       activeModule: "crawl",
       setActiveModule: (module) => set({ activeModule: module }),
@@ -183,7 +187,9 @@ export const useAppStore = create<AppState>()(
         crawlTargetCount: state.crawlTargetCount,
         activeSearchHistoryId: state.activeSearchHistoryId,
       }),
-      onRehydrateStorage: () => () => {},
+      onRehydrateStorage: () => (state) => {
+        state?.setUiHasHydrated(true);
+      },
     }
   )
 );

@@ -12,12 +12,12 @@ import { usePromptsSettingsStore } from "@/store/promptsSettingsStore";
 import { useRewriteSettingsStore } from "@/store/rewriteSettingsStore";
 
 export default function WorkspaceShell() {
-  const { activeModule, hasHydrated } = useAppStore();
+  const { activeModule, hasHydrated, uiHasHydrated } = useAppStore();
   const promptsHydrated = usePromptsSettingsStore((state) => state.hasHydrated);
   const rewriteSettingsHydrated = useRewriteSettingsStore((state) => state.hasHydrated);
   useWorkspacePersistence();
 
-  if (!hasHydrated || !promptsHydrated || !rewriteSettingsHydrated) {
+  if (!uiHasHydrated || !hasHydrated || !promptsHydrated || !rewriteSettingsHydrated) {
     return <div className="h-screen bg-gray-50" />;
   }
 
