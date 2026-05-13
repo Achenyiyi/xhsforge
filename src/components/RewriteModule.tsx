@@ -82,7 +82,7 @@ const LIBRARY_SCOPES: Array<{ scope: ReplaceLibraryScope; label: string; desc: s
   { scope: "cover", label: "封面文案词库", desc: "只作用在封面文案生成" },
 ];
 const SAVE_DRAFT_TARGET_BATCH_BYTES = 16 * 1024 * 1024;
-const SAVE_DRAFT_MAX_BATCH_ITEMS = 4;
+const SAVE_DRAFT_MAX_BATCH_ITEMS = 2;
 const SAVE_DRAFT_SINGLE_ITEM_SOFT_LIMIT_BYTES = 90 * 1024 * 1024;
 const MAX_PARALLEL_REWRITES = 6;
 
@@ -1535,6 +1535,7 @@ export default function RewriteModule() {
             extractReplacePromptTemplate: extractReplacePrompt,
             extractReplacePromptMode,
             extractPromptIncludesOriginalAndRewritten,
+            extractReplaceEnabled: autoMergeExtractedEntries,
           }),
         });
         const data = await readApiJson<SaveDraftResponse>(res, "保存失败");

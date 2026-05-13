@@ -5,6 +5,7 @@ import {
   updateCollectRecords,
   getTableFields,
   getRecordInTable,
+  getRecordsInTable,
   addTableField,
   TABLE_ID,
   uploadAttachmentToBitable,
@@ -96,6 +97,10 @@ type FailedResultItem = {
   recordId: string;
   title: string;
   error: string;
+};
+type ExistingRewriteRecord = {
+  sourceRecordId: string;
+  recordId: string;
 };
 
 function sleep(ms: number) {
@@ -555,6 +560,54 @@ async function ensureRewriteTable() {
   };
 }
 
+async function findExistingRewriteRecords(
+  tableId: string,
+  results: RewriteResult[]
+): Promise<Map<string, ExistingRewriteRecord>> {
+  const sourceIds = new Set(
+    results
+      .map((result) => result.originalNote.recordId || result.recordId)
+      .filter(Boolean)
+  );
+  const existingRecords = new Map<string, ExistingRewriteRecord>();
+  if (sourceIds.size === 0) return existingRecords;
+
+  let pageToken: string | undefined;
+  for (let page = 0; page < 30; page += 1) {
+    const data = await withRetry(
+      () => getRecordsInTable(tableId, 100, pageToken),
+      `查询二创库已有记录 ${page + 1}`
+    );
+
+    for (const record of data.items || []) {
+      const sourceRecordId = String(record.fields["源记录ID"] || "");
+      if (!sourceIds.has(sourceRecordId)) continue;
+
+      const title = String(record.fields["二创标题"] || record.fields["标题"] || "").trim();
+      const body = String(record.fields["二创正文"] || "").trim();
+      const existingKey = `${sourceRecordId}|${title}|${body}`;
+      if (!existingRecords.has(existingKey)) {
+        existingRecords.set(existingKey, {
+          sourceRecordId,
+          recordId: record.record_id,
+        });
+      }
+    }
+
+    if (!data.has_more || !data.page_token) break;
+    pageToken = data.page_token;
+  }
+
+  return existingRecords;
+}
+
+function buildExistingRewriteKey(result: RewriteResult) {
+  const sourceRecordId = result.originalNote.recordId || result.recordId;
+  const title = (result.rewrittenTitle || result.originalNote.originalTitle || "").trim();
+  const body = (result.rewrittenBody || "").trim();
+  return `${sourceRecordId}|${title}|${body}`;
+}
+
 function buildRewriteTableFields(params: {
   result: RewriteResult;
   rewriteFields: Array<{ field_name: string; type: number }>;
@@ -692,11 +745,13 @@ export async function POST(req: NextRequest) {
       extractReplacePromptTemplate = "",
       extractReplacePromptMode,
       extractPromptIncludesOriginalAndRewritten = false,
+      extractReplaceEnabled = true,
     }: {
       results: RewriteResult[];
       extractReplacePromptTemplate?: string;
       extractReplacePromptMode?: PromptMode;
       extractPromptIncludesOriginalAndRewritten?: boolean;
+      extractReplaceEnabled?: boolean;
     } = await req.json();
 
     if (!results || results.length === 0) {
@@ -712,6 +767,9 @@ export async function POST(req: NextRequest) {
     );
     const promptTemplate = extractReplacePromptTemplate || undefined;
     const promptMode = normalizePromptMode(extractReplacePromptMode);
+    const shouldExtractReplaceInfo = extractReplaceEnabled !== false;
+    const existingRewriteRecords = await findExistingRewriteRecords(tableId, persistResults);
+    const claimedRewriteKeys = new Set<string>();
     const originalCoverAttachmentTasks = new Map<string, Promise<UploadedAttachment | null>>();
 
     async function getOriginalCoverAttachment(result: RewriteResult) {
@@ -782,14 +840,37 @@ export async function POST(req: NextRequest) {
     }
 
     async function persistSingleResult(result: RewriteResult): Promise<PersistedResultItem> {
+      const rewriteKey = buildExistingRewriteKey(result);
+      const existingRecord = existingRewriteRecords.get(rewriteKey);
+      if (existingRecord) {
+        console.info(
+          `二创库已存在，跳过重复写入 result=${result.id} source=${existingRecord.sourceRecordId} record=${existingRecord.recordId}`
+        );
+        return {
+          result,
+          extractedByScope: { title: "", body: "", cover: "" },
+        };
+      }
+      if (claimedRewriteKeys.has(rewriteKey)) {
+        console.info(`本次请求内发现重复二创，跳过 result=${result.id}`);
+        return {
+          result,
+          extractedByScope: { title: "", body: "", cover: "" },
+        };
+      }
+      claimedRewriteKeys.add(rewriteKey);
+
+      console.info(`开始保存二创 result=${result.id} title=${result.rewrittenTitle || result.originalNote.originalTitle || ""}`);
       const [extractedByScope, originalCoverAttachment, draftCoverAttachment] =
         await Promise.all([
-          extractReplaceInfoByScope(
-            result,
-            promptTemplate,
-            promptMode,
-            extractPromptIncludesOriginalAndRewritten
-          ),
+          shouldExtractReplaceInfo
+            ? extractReplaceInfoByScope(
+                result,
+                promptTemplate,
+                promptMode,
+                extractPromptIncludesOriginalAndRewritten
+              )
+            : Promise.resolve({ title: "", body: "", cover: "" }),
           getOriginalCoverAttachment(result),
           uploadDraftCoverAttachment(result),
         ]);
@@ -809,6 +890,7 @@ export async function POST(req: NextRequest) {
         () => createRecordsInTable(tableId, [rewriteRecord]),
         `写入二创库 ${result.id}`
       );
+      console.info(`完成写入二创库 result=${result.id}`);
 
       const sourceRecordId = result.originalNote.recordId || result.recordId;
       const collectFields = buildCollectUpdateFields(
