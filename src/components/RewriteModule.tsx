@@ -26,6 +26,7 @@ import ImageCropModal from "@/components/ImageCropModal";
 import { useCoverTemplateLibraryPersistence } from "@/hooks/useCoverTemplateLibraryPersistence";
 import { useAppStore } from "@/store/appStore";
 import { apiFetch } from "@/lib/apiClient";
+import { deleteWorkspaceRewriteResults } from "@/lib/workspaceClient";
 import { composeCoverImage } from "@/lib/coverComposer";
 import {
   DEFAULT_COVER_LAYOUT_ID,
@@ -892,6 +893,7 @@ function getLiveOriginalNote(
 export default function RewriteModule() {
   const {
     rewriteResults,
+    setRewriteResults,
     updateRewriteResult,
     deleteRewriteResults,
     selectedRewriteIds,
@@ -936,6 +938,7 @@ export default function RewriteModule() {
   useCoverTemplateLibraryPersistence();
 
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [saveMsg, setSaveMsg] = useState<SaveMessageState | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [bulkExpanded, setBulkExpanded] = useState(true);
@@ -1763,12 +1766,41 @@ export default function RewriteModule() {
     }
   }
 
+  const deleteResultsDurably = useCallback(async (ids: string[]) => {
+    if (ids.length === 0 || deleting) return;
+
+    const previousResults = useAppStore.getState().rewriteResults;
+    setDeleting(true);
+    deleteRewriteResults(ids);
+    showSaveMessage("正在删除二创记录...", "info", 0);
+
+    try {
+      await deleteWorkspaceRewriteResults(ids);
+      ids.forEach((id) => {
+        const controller = rewriteAbortControllersRef.current.get(id);
+        if (controller) {
+          controller.abort();
+          rewriteAbortControllersRef.current.delete(id);
+        }
+      });
+      showSaveMessage(`已删除 ${ids.length} 条二创记录`);
+    } catch (error) {
+      setRewriteResults(previousResults);
+      showSaveMessage(
+        error instanceof Error ? error.message : "删除二创记录失败",
+        "error",
+        4000
+      );
+    } finally {
+      setDeleting(false);
+    }
+  }, [deleteRewriteResults, deleting, setRewriteResults, showSaveMessage]);
+
   function handleDeleteSelected() {
     if (selectedRewriteIds.size === 0) return;
     const confirmed = window.confirm(`确认删除已选中的 ${selectedRewriteIds.size} 条二创记录吗？`);
     if (!confirmed) return;
-    deleteRewriteResults(Array.from(selectedRewriteIds));
-    showSaveMessage(`已删除 ${selectedRewriteIds.size} 条二创记录`);
+    void deleteResultsDurably(Array.from(selectedRewriteIds));
   }
 
   function handleImportPendingEntries(scope: ReplaceLibraryScope) {
@@ -2058,10 +2090,11 @@ export default function RewriteModule() {
             {selectedRewriteIds.size > 0 && (
               <button
                 onClick={handleDeleteSelected}
-                className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 text-gray-600 hover:text-red-600 hover:border-red-200 hover:bg-red-50 text-sm rounded-lg font-medium transition-colors"
+                disabled={deleting}
+                className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 text-gray-600 hover:text-red-600 hover:border-red-200 hover:bg-red-50 disabled:cursor-not-allowed disabled:border-gray-100 disabled:text-gray-300 disabled:hover:bg-white text-sm rounded-lg font-medium transition-colors"
               >
                 <Trash2 className="w-4 h-4" />
-                删除选中
+                {deleting ? "删除中..." : "删除选中"}
               </button>
             )}
             <button
@@ -2465,14 +2498,8 @@ export default function RewriteModule() {
                   onRetry={() => startRewrite(result.id)}
                   onToggleProcessing={() => toggleRewriteProcessing(result.id)}
                   onRetryField={(field) => retryRewriteField(result.id, field)}
-                  onDelete={() => {
-                    const controller = rewriteAbortControllersRef.current.get(result.id);
-                    if (controller) {
-                      controller.abort();
-                      rewriteAbortControllersRef.current.delete(result.id);
-                    }
-                    deleteRewriteResults([result.id]);
-                  }}
+                  onDelete={() => deleteResultsDurably([result.id])}
+                  deleting={deleting}
                 />
               ))}
             </div>
@@ -2498,6 +2525,7 @@ function RewriteRow({
   onToggleProcessing,
   onRetryField,
   onDelete,
+  deleting,
 }: {
   sequenceNumber: number;
   result: RewriteResult;
@@ -2513,6 +2541,7 @@ function RewriteRow({
   onToggleProcessing: () => void;
   onRetryField: (field: RetryableRewriteField) => Promise<void>;
   onDelete: () => void;
+  deleting: boolean;
 }) {
   const [expanded, setExpanded] = useState(true);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -3424,7 +3453,8 @@ function RewriteRow({
               const confirmed = window.confirm("确认删除这条二创记录吗？");
               if (confirmed) onDelete();
             }}
-            className="text-gray-300 hover:text-red-500 transition-colors"
+            disabled={deleting}
+            className="text-gray-300 transition-colors hover:text-red-500 disabled:cursor-not-allowed disabled:text-gray-200"
             title="删除"
           >
             <Trash2 className="w-4 h-4" />

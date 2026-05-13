@@ -183,9 +183,7 @@ export const useAppStore = create<AppState>()(
         crawlTargetCount: state.crawlTargetCount,
         activeSearchHistoryId: state.activeSearchHistoryId,
       }),
-      onRehydrateStorage: () => (state) => {
-        state?.setHasHydrated(true);
-      },
+      onRehydrateStorage: () => () => {},
     }
   )
 );

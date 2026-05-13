@@ -43,3 +43,25 @@ export async function saveWorkspaceSnapshots(
     throw new Error(data.error || "保存工作区失败");
   }
 }
+
+export async function deleteWorkspaceRewriteResults(ids: string[]) {
+  const response = await apiFetch("/api/workspace/rewrite-results", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || "删除二创记录失败");
+  }
+}
+
+export async function saveWorkspaceSnapshot(
+  key: WorkspaceSnapshotKey,
+  payload: unknown
+) {
+  await saveWorkspaceSnapshots({
+    [key]: payload,
+  });
+}

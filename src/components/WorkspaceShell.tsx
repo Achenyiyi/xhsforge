@@ -8,12 +8,16 @@ import RewriteModule from "@/components/RewriteModule";
 import DraftModule from "@/components/DraftModule";
 import AdvancedSettingsModule from "@/components/AdvancedSettingsModule";
 import { useWorkspacePersistence } from "@/hooks/useWorkspacePersistence";
+import { usePromptsSettingsStore } from "@/store/promptsSettingsStore";
+import { useRewriteSettingsStore } from "@/store/rewriteSettingsStore";
 
 export default function WorkspaceShell() {
   const { activeModule, hasHydrated } = useAppStore();
+  const promptsHydrated = usePromptsSettingsStore((state) => state.hasHydrated);
+  const rewriteSettingsHydrated = useRewriteSettingsStore((state) => state.hasHydrated);
   useWorkspacePersistence();
 
-  if (!hasHydrated) {
+  if (!hasHydrated || !promptsHydrated || !rewriteSettingsHydrated) {
     return <div className="h-screen bg-gray-50" />;
   }
 

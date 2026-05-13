@@ -10,12 +10,56 @@ const ALLOWED_KEYS = new Set([
   "prompts-settings",
   "cover-template-library",
 ]);
+const MAX_DELETED_REWRITE_RESULT_IDS = 5000;
 
 type WorkspacePayload = Record<string, unknown>;
 
 function normalizePayload(value: unknown): WorkspacePayload {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return value as WorkspacePayload;
+}
+
+function getRewriteResultId(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const id = (value as Record<string, unknown>).id;
+  return typeof id === "string" ? id : null;
+}
+
+function normalizeStringArray(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+function mergeWorkspaceSnapshotPayload(
+  incomingPayload: unknown,
+  existingPayload: Prisma.JsonValue | null | undefined
+) {
+  const incoming = normalizePayload(incomingPayload);
+  const existing = normalizePayload(existingPayload);
+  const deletedRewriteResultIds = Array.from(
+    new Set([
+      ...normalizeStringArray(existing.deletedRewriteResultIds),
+      ...normalizeStringArray(incoming.deletedRewriteResultIds),
+    ])
+  ).slice(-MAX_DELETED_REWRITE_RESULT_IDS);
+
+  if (deletedRewriteResultIds.length === 0) {
+    return incoming;
+  }
+
+  const deletedIdSet = new Set(deletedRewriteResultIds);
+  const rewriteResults = Array.isArray(incoming.rewriteResults)
+    ? incoming.rewriteResults.filter((result) => {
+        const id = getRewriteResultId(result);
+        return !id || !deletedIdSet.has(id);
+      })
+    : incoming.rewriteResults;
+
+  return {
+    ...incoming,
+    rewriteResults,
+    deletedRewriteResultIds,
+  };
 }
 
 export async function GET() {
@@ -63,9 +107,25 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "没有可保存的工作区数据" }, { status: 400 });
     }
 
-    await prisma.$transaction(
-      entries.map(([key, payload]) =>
-        prisma.workspaceSnapshot.upsert({
+    await prisma.$transaction(async (tx) => {
+      for (const [key, payload] of entries) {
+        const existing = await tx.workspaceSnapshot.findUnique({
+          where: {
+            userId_key: {
+              userId: user.id,
+              key,
+            },
+          },
+          select: {
+            payload: true,
+          },
+        });
+        const nextPayload =
+          key === "workspace-snapshot"
+            ? mergeWorkspaceSnapshotPayload(payload, existing?.payload)
+            : payload;
+
+        await tx.workspaceSnapshot.upsert({
           where: {
             userId_key: {
               userId: user.id,
@@ -73,16 +133,16 @@ export async function PUT(req: NextRequest) {
             },
           },
           update: {
-            payload: payload as Prisma.InputJsonValue,
+            payload: nextPayload as Prisma.InputJsonValue,
           },
           create: {
             userId: user.id,
             key,
-            payload: payload as Prisma.InputJsonValue,
+            payload: nextPayload as Prisma.InputJsonValue,
           },
-        })
-      )
-    );
+        });
+      }
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

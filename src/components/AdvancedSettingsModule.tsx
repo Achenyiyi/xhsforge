@@ -10,6 +10,7 @@ import {
   DEFAULT_COVER_REWRITE_PROMPT,
   DEFAULT_EXTRACT_REPLACE_PROMPT,
 } from "@/store/promptsSettingsStore";
+import { saveWorkspaceSnapshot } from "@/lib/workspaceClient";
 
 interface PromptSection {
   key: "bodyRewritePrompt" | "titleRewritePrompt" | "coverRewritePrompt" | "extractReplacePrompt";
@@ -173,6 +174,8 @@ export default function AdvancedSettingsModule() {
 
   const [drafts, setDrafts] = useState<Record<string, string> | null>(null);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   const effectiveDrafts = drafts ?? persistedPrompts;
   const hasChanges = SECTIONS.some((section) => effectiveDrafts[section.key] !== store[section.key]);
@@ -180,6 +183,7 @@ export default function AdvancedSettingsModule() {
   function handleChange(key: string, value: string) {
     setDrafts((current) => ({ ...(current ?? persistedPrompts), [key]: value }));
     setSaved(false);
+    setError("");
   }
 
   function handleReset(section: PromptSection) {
@@ -188,6 +192,7 @@ export default function AdvancedSettingsModule() {
       [section.key]: section.defaultValue,
     }));
     setSaved(false);
+    setError("");
   }
 
   function handleResetAll() {
@@ -197,16 +202,38 @@ export default function AdvancedSettingsModule() {
     });
     setDrafts(reset);
     setSaved(false);
+    setError("");
   }
 
-  function handleSave() {
-    store.setBodyRewritePrompt(effectiveDrafts.bodyRewritePrompt);
-    store.setTitleRewritePrompt(effectiveDrafts.titleRewritePrompt);
-    store.setCoverRewritePrompt(effectiveDrafts.coverRewritePrompt);
-    store.setExtractReplacePrompt(effectiveDrafts.extractReplacePrompt);
-    setDrafts(null);
-    setSaved(true);
-    window.setTimeout(() => setSaved(false), 2500);
+  async function handleSave() {
+    setSaving(true);
+    setError("");
+
+    try {
+      const nextPrompts = {
+        bodyRewritePrompt: effectiveDrafts.bodyRewritePrompt,
+        titleRewritePrompt: effectiveDrafts.titleRewritePrompt,
+        coverRewritePrompt: effectiveDrafts.coverRewritePrompt,
+        extractReplacePrompt: effectiveDrafts.extractReplacePrompt,
+      };
+
+      await saveWorkspaceSnapshot("prompts-settings", {
+        state: nextPrompts,
+        version: 0,
+      });
+
+      store.setBodyRewritePrompt(nextPrompts.bodyRewritePrompt);
+      store.setTitleRewritePrompt(nextPrompts.titleRewritePrompt);
+      store.setCoverRewritePrompt(nextPrompts.coverRewritePrompt);
+      store.setExtractReplacePrompt(nextPrompts.extractReplacePrompt);
+      setDrafts(null);
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 2500);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "保存提示词失败");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -228,23 +255,28 @@ export default function AdvancedSettingsModule() {
           </button>
           <button
             onClick={handleSave}
-            disabled={!hasChanges}
+            disabled={!hasChanges || saving}
             className={clsx(
               "flex items-center gap-1.5 text-sm px-4 py-1.5 rounded-lg font-medium transition-colors",
               saved
                 ? "bg-green-500 text-white"
-                : hasChanges
+                : hasChanges && !saving
                   ? "bg-red-600 hover:bg-red-700 text-white"
                   : "bg-gray-200 text-gray-400 cursor-not-allowed"
             )}
           >
             <Save className="w-4 h-4" />
-            {saved ? "已保存" : "保存"}
+            {saving ? "保存中..." : saved ? "已保存" : "保存"}
           </button>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+        {error ? (
+          <div className="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">
+            {error}
+          </div>
+        ) : null}
         {SECTIONS.map((section) => (
           <PromptCard
             key={section.key}

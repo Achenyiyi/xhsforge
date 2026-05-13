@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
+import { saveCurrentWorkspaceSnapshot } from "@/lib/workspaceSnapshot";
 
 export type AuthUser = {
   id: string;
@@ -63,6 +64,9 @@ export function AuthProvider({
   }, []);
 
   const logout = useCallback(async () => {
+    await saveCurrentWorkspaceSnapshot().catch((error) => {
+      console.error("退出前保存工作区失败:", error);
+    });
     await fetch("/api/auth/logout", {
       method: "POST",
     });
