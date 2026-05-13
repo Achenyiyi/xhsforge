@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RefreshCw, Sparkles, ChevronDown, ChevronUp, Check, Search, X } from "lucide-react";
+import { RefreshCw, Sparkles, ChevronDown, ChevronUp, Check, Search, X, Trash2 } from "lucide-react";
 import clsx from "clsx";
 import { useAppStore } from "@/store/appStore";
 import EngagementStats from "@/components/EngagementStats";
@@ -14,6 +14,7 @@ import type { FeishuCollectRecord, PublishPersona, RecruitmentDirection, Rewrite
 import Image from "next/image";
 
 const PAGE_SIZE = 10;
+const FEISHU_RECORDS_ENDPOINT = "/api/feishu/records";
 type SortField = "collectDate" | "likedCount" | "collectedCount" | "commentCount" | "shareCount";
 type SortDirection = "asc" | "desc";
 type SortState = Record<SortField, { enabled: boolean; direction: SortDirection }>;
@@ -94,6 +95,8 @@ function createRewriteResult(record: FeishuCollectRecord, batchIndex: number, ba
     rewrittenTags: inheritedTags,
     rewriteRemark: "",
     recruitmentDirection: record.recruitmentDirection || "",
+    publishAccount: "",
+    scheduledPublishTime: "",
     // 发起新的二创时默认从空人设开始，避免沿用飞书里的历史选择。
     publishPersona: "",
     titleReplaceInfo: "",
@@ -107,6 +110,8 @@ function createRewriteResult(record: FeishuCollectRecord, batchIndex: number, ba
       rewrittenTags: inheritedTags,
       rewriteRemark: "",
       recruitmentDirection: record.recruitmentDirection || "",
+      publishAccount: "",
+      scheduledPublishTime: "",
       publishPersona: "",
     },
     status: "pending",
@@ -140,6 +145,7 @@ export default function ListModule() {
     "" | Extract<PublishPersona, "主播" | "HR">
   >("");
   const [testPostFilter, setTestPostFilter] = useState(false);
+  const [deletingRecordId, setDeletingRecordId] = useState<string | null>(null);
   const initRef = useRef(false);
   const titleSearchQuery = titleSearchKeyword.trim().toLowerCase();
 
@@ -237,17 +243,40 @@ export default function ListModule() {
     setLoading(true);
     setError("");
     try {
-      const res = await apiFetch("/api/feishu/records");
+      const res = await apiFetch(`${FEISHU_RECORDS_ENDPOINT}?t=${Date.now()}`, {
+        cache: "no-store",
+        headers: {
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "获取失败");
-      setCollectRecords(data.records || []);
+      const nextRecords = Array.isArray(data.records) ? data.records : [];
+      setCollectRecords(nextRecords);
+      const liveRecordIds = new Set(
+        nextRecords
+          .map((record: FeishuCollectRecord) => record.recordId)
+          .filter((recordId: string | undefined): recordId is string => Boolean(recordId))
+      );
+      selectAllRecords(Array.from(selectedRecordIds).filter((recordId) => liveRecordIds.has(recordId)));
+      setExpandedIds((current) => {
+        const next = new Set<string>();
+        current.forEach((recordId) => {
+          if (liveRecordIds.has(recordId)) next.add(recordId);
+        });
+        return next;
+      });
       setPage((current) => Math.min(current, Math.max(1, Math.ceil((data.records || []).length / PAGE_SIZE))));
     } catch (e: unknown) {
+      setCollectRecords([]);
+      selectAllRecords([]);
+      setExpandedIds(new Set());
       setError(e instanceof Error ? e.message : "加载失败");
     } finally {
       setLoading(false);
     }
-  }, [setCollectRecords]);
+  }, [selectedRecordIds, selectAllRecords, setCollectRecords]);
 
   useEffect(() => {
     if (!initRef.current) {
@@ -337,6 +366,39 @@ export default function ListModule() {
     setActiveModule("rewrite");
     clearRecordSelection();
     setRewriting(false);
+  }
+
+  async function handleDeleteRecord(record: FeishuCollectRecord) {
+    const recordId = record.recordId?.trim();
+    if (!recordId || deletingRecordId) return;
+
+    const displayTitle = sanitizeTitle(record.originalTitle || "") || "这条爆款笔记";
+    const confirmed = window.confirm(
+      `确定删除「${displayTitle}」吗？\n\n删除后飞书爆款库也会同步删除，无法在网页端恢复。`
+    );
+    if (!confirmed) return;
+
+    setDeletingRecordId(recordId);
+    setError("");
+
+    try {
+      const res = await apiFetch(`/api/feishu/records/${encodeURIComponent(recordId)}`, {
+        method: "DELETE",
+        cache: "no-store",
+        headers: {
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "删除失败");
+
+      await fetchRecords();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "删除失败");
+    } finally {
+      setDeletingRecordId(null);
+    }
   }
 
   return (
@@ -645,9 +707,11 @@ export default function ListModule() {
                 selected={selectedRecordIds.has(record.recordId || "")}
                 expanded={expandedIds.has(record.recordId || "")}
                 batchCount={batchCountMap[record.recordId || ""] || 1}
+                deleting={deletingRecordId === record.recordId}
                 onBatchCountChange={(count) => record.recordId && updateBatchCount(record.recordId, count)}
                 onToggleSelect={() => record.recordId && toggleRecordSelect(record.recordId)}
                 onToggleExpand={() => record.recordId && toggleExpand(record.recordId)}
+                onDelete={() => handleDeleteRecord(record)}
               />
             ))}
           </div>
@@ -704,17 +768,21 @@ function RecordRow({
   selected,
   expanded,
   batchCount,
+  deleting,
   onBatchCountChange,
   onToggleSelect,
   onToggleExpand,
+  onDelete,
 }: {
   record: FeishuCollectRecord;
   selected: boolean;
   expanded: boolean;
   batchCount: number;
+  deleting: boolean;
   onBatchCountChange: (count: number) => void;
   onToggleSelect: () => void;
   onToggleExpand: () => void;
+  onDelete: () => void;
 }) {
   const displayTitle = sanitizeTitle(record.originalTitle || "");
   const displayTags = buildDisplayTags(record);
@@ -831,6 +899,20 @@ function RecordRow({
               >
                 {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 {expanded ? "收起" : "展开"}
+              </button>
+              <button
+                type="button"
+                onClick={onDelete}
+                disabled={deleting}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                title="删除爆款库记录"
+                aria-label="删除爆款库记录"
+              >
+                {deleting ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
               </button>
             </div>
           </div>

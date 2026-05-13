@@ -61,6 +61,7 @@ type SearchErrorState = {
 
 const FEISHU_DOC_LIBRARY_URL =
   process.env.NEXT_PUBLIC_FEISHU_DOC_LIBRARY_URL?.trim() || "";
+const FEISHU_RECORDS_ENDPOINT = "/api/feishu/records";
 
 function parseNoteLinks(raw: string) {
   return extractXhsLinksFromText(raw);
@@ -194,15 +195,21 @@ export default function CrawlModule() {
   }
 
   async function syncCollectList() {
-    try {
-      const res = await apiFetch("/api/feishu/records");
-      const data = await res.json();
-      if (res.ok) {
-        setCollectRecords(data.records || []);
-      }
-    } catch {
-      // 同步失败不阻断导入结果提示
+    const res = await apiFetch(`${FEISHU_RECORDS_ENDPOINT}?t=${Date.now()}`, {
+      cache: "no-store",
+      headers: {
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      setCollectRecords([]);
+      throw new Error(data.error || "同步飞书爆款库失败");
     }
+
+    setCollectRecords(Array.isArray(data.records) ? data.records : []);
   }
 
   async function handleImport() {
@@ -235,18 +242,25 @@ export default function CrawlModule() {
       const importedCount = Number(data.importedCount ?? data.count ?? 0);
       const skippedCount = Number(data.skippedCount ?? 0);
 
-      if (importedCount > 0 && skippedCount > 0) {
-        setImportSuccess(`成功导入 ${importedCount} 条笔记，过滤掉 ${skippedCount} 条已存在/重复笔记`);
-      } else if (importedCount > 0) {
-        setImportSuccess(`成功导入 ${importedCount} 条笔记到飞书`);
-      } else if (skippedCount > 0) {
-        setImportSuccess(`导入完成，过滤掉 ${skippedCount} 条已存在/重复笔记`);
-      } else {
-        setImportSuccess("导入完成");
+      setSelectedIds(new Set());
+      try {
+        await syncCollectList();
+      } catch (syncError) {
+        const syncMessage = syncError instanceof Error ? syncError.message : "同步飞书爆款库失败";
+        setImportSuccess("");
+        throw new Error(`导入已提交，但网页端没有同步到飞书爆款库：${syncMessage}`);
       }
 
-      setSelectedIds(new Set());
-      await syncCollectList();
+      if (importedCount > 0 && skippedCount > 0) {
+        setImportSuccess(`成功导入 ${importedCount} 条笔记，过滤掉 ${skippedCount} 条已存在/重复笔记，网页端已同步飞书爆款库`);
+      } else if (importedCount > 0) {
+        setImportSuccess(`成功导入 ${importedCount} 条笔记到飞书，网页端已同步飞书爆款库`);
+      } else if (skippedCount > 0) {
+        setImportSuccess(`导入完成，过滤掉 ${skippedCount} 条已存在/重复笔记，网页端已同步飞书爆款库`);
+      } else {
+        setImportSuccess("导入完成，网页端已同步飞书爆款库");
+      }
+
       window.setTimeout(() => setImportSuccess(""), 4000);
     } catch (e: unknown) {
       setError({

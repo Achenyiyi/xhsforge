@@ -21,6 +21,8 @@ export interface XHSNote {
   coverText?: string; // 封面文案（从图片提取）
   publishPersona?: string; // 发布人设
   recruitmentDirection?: string; // 招聘方向
+  publishAccount?: string; // 发布账号
+  scheduledPublishTime?: string; // 定时发布时间（YYYY-MM-DD HH:mm）
   isTestPost?: boolean; // 测试贴（写入爆款库“测试”复选框）
 }
 
@@ -53,6 +55,8 @@ export interface FeishuCollectRecord {
   rewriteRemark?: string; // 二创备注
   publishPersona?: string; // 发布人设
   recruitmentDirection?: string; // 招聘方向
+  publishAccount?: string; // 发布账号
+  scheduledPublishTime?: string; // 定时发布时间（YYYY-MM-DD HH:mm）
   isTestPost?: boolean; // 测试贴（爆款库“测试”复选框）
   hasRewritten?: boolean; // 已二创（复选框）
   // 原始笔记内容（在飞书不存储，仅内存用）
@@ -72,6 +76,8 @@ export interface RewriteEditBaseline {
   rewriteRemark: string;
   publishPersona: string;
   recruitmentDirection: string;
+  publishAccount: string;
+  scheduledPublishTime: string;
 }
 
 export interface RewriteResult {
@@ -91,6 +97,8 @@ export interface RewriteResult {
   rewriteRemark: string;
   publishPersona: string;
   recruitmentDirection: string;
+  publishAccount: string;
+  scheduledPublishTime: string;
   titleReplaceInfo: string; // 本次标题生成实际使用的替换信息
   bodyReplaceInfo: string; // 本次正文生成实际使用的替换信息
   coverReplaceInfo: string; // 本次封面文案生成实际使用的替换信息

@@ -1,33 +1,25 @@
 import { NextResponse } from "next/server";
 import { authErrorResponse, requireUser } from "@/lib/auth";
-import { getCollectRecords, getRecordsInTable } from "@/lib/feishu";
-import { runtimeConfig } from "@/lib/runtimeConfig";
+import { getCollectRecords } from "@/lib/feishu";
 import { dedupeTags, extractTagsFromText, stripTagsFromText } from "@/lib/xhs";
-import { buildOpenableNoteLink, extractNoteIdFromLink } from "@/lib/xhsLink";
+import { buildOpenableNoteLink } from "@/lib/xhsLink";
 import type { FeishuCollectRecord } from "@/types";
 
-const REWRITE_TABLE_ID = runtimeConfig.feishu.rewriteTableId;
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+const NO_STORE_HEADERS = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+  Pragma: "no-cache",
+  Expires: "0",
+  "Surrogate-Control": "no-store",
+};
+
 const REPLACE_INFO_FIELD_NAMES = {
   title: "标题替换信息",
   body: "正文替换信息",
   cover: "封面文案替换信息",
 } as const;
-
-type RewriteSnapshot = {
-  rewriteTimestamp: number;
-  rewriteTitleReplaceInfo: string;
-  rewriteBodyReplaceInfo: string;
-  rewriteCoverReplaceInfo: string;
-  rewriteDate: string;
-  rewriteTitle: string;
-  rewriteBody: string;
-  rewriteCover: string;
-  rewriteCoverText: string;
-  rewriteTags: string[];
-  rewriteRemark: string;
-  publishPersona: string;
-  recruitmentDirection: string;
-};
 
 /** 安全取数字 */
 function toNum(v: unknown): number {
@@ -62,18 +54,6 @@ function toLinkUrl(v: unknown): string {
   return "";
 }
 
-function toTimestamp(v: unknown): number {
-  if (!v) return 0;
-  if (typeof v === "number") return v;
-  if (typeof v === "string") {
-    const numeric = Number(v);
-    if (Number.isFinite(numeric) && numeric > 0) return numeric;
-    const parsed = Date.parse(v);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-  return 0;
-}
-
 function toBool(v: unknown): boolean {
   if (typeof v === "boolean") return v;
   if (typeof v === "number") return v !== 0;
@@ -92,39 +72,6 @@ function toBool(v: unknown): boolean {
     if (typeof obj.value === "boolean") return obj.value;
   }
   return Boolean(v);
-}
-
-function normalizeNoteLink(link: string): string {
-  const openableLink = buildOpenableNoteLink(link);
-  if (!openableLink) return "";
-
-  try {
-    const url = new URL(openableLink);
-    url.hash = "";
-    return url.toString();
-  } catch {
-    return openableLink;
-  }
-}
-
-function buildRewriteLookupKeys(params: { sourceRecordId?: string; noteLink?: string }) {
-  const sourceRecordId = params.sourceRecordId?.trim();
-  const noteLink = params.noteLink || "";
-  const noteId = extractNoteIdFromLink(noteLink).trim().toLowerCase();
-  const normalizedLink = normalizeNoteLink(noteLink);
-  const keys = new Set<string>();
-
-  if (sourceRecordId) {
-    keys.add(`record:${sourceRecordId}`);
-  }
-  if (noteId) {
-    keys.add(`note:${noteId}`);
-  }
-  if (normalizedLink) {
-    keys.add(`link:${normalizedLink}`);
-  }
-
-  return Array.from(keys);
 }
 
 function parseTags(v: unknown): string[] {
@@ -170,82 +117,6 @@ function toAttachmentUrls(v: unknown): string[] {
     .filter(Boolean);
 }
 
-function buildRewriteSnapshot(fields: Record<string, unknown>): RewriteSnapshot {
-  const rewriteTags = parseTags(fields["二创标签"]);
-  const rewriteDate = tsToStr(fields["二创日期"]);
-
-  return {
-    rewriteTimestamp: toTimestamp(fields["二创日期"]),
-    rewriteTitleReplaceInfo: toStr(fields[REPLACE_INFO_FIELD_NAMES.title]),
-    rewriteBodyReplaceInfo: toStr(fields[REPLACE_INFO_FIELD_NAMES.body]),
-    rewriteCoverReplaceInfo: toStr(fields[REPLACE_INFO_FIELD_NAMES.cover]),
-    rewriteDate,
-    rewriteTitle: toStr(fields["二创标题"]),
-    rewriteBody: toStr(fields["二创正文"]),
-    rewriteCover: toAttachmentUrl(fields["二创封面"]),
-    rewriteCoverText: toStr(fields["二创封面文案"]),
-    rewriteTags,
-    rewriteRemark: toStr(fields["备注"]),
-    publishPersona: toStr(fields["发布人设"]),
-    recruitmentDirection: toStr(fields["招聘方向"]),
-  };
-}
-
-function pickNewerSnapshot(current: RewriteSnapshot | undefined, incoming: RewriteSnapshot) {
-  if (!current) return incoming;
-  return incoming.rewriteTimestamp >= current.rewriteTimestamp ? incoming : current;
-}
-
-async function loadRewriteSnapshotIndex() {
-  const index = new Map<string, RewriteSnapshot>();
-
-  if (!REWRITE_TABLE_ID) {
-    return index;
-  }
-
-  let pageToken: string | undefined;
-
-  while (true) {
-    const result = await getRecordsInTable(REWRITE_TABLE_ID, 100, pageToken);
-
-    for (const item of result.items || []) {
-      const fields = item.fields;
-      const snapshot = buildRewriteSnapshot(fields);
-      const keys = buildRewriteLookupKeys({
-        sourceRecordId: toStr(fields["源记录ID"]),
-        noteLink: toLinkUrl(fields["笔记链接"]),
-      });
-
-      keys.forEach((key) => {
-        index.set(key, pickNewerSnapshot(index.get(key), snapshot));
-      });
-    }
-
-    if (!result.has_more || !result.page_token) break;
-    pageToken = result.page_token;
-  }
-
-  return index;
-}
-
-function findRewriteSnapshot(
-  recordId: string,
-  noteLink: string,
-  rewriteSnapshotIndex: Map<string, RewriteSnapshot>
-) {
-  const keys = buildRewriteLookupKeys({
-    sourceRecordId: recordId,
-    noteLink,
-  });
-
-  for (const key of keys) {
-    const snapshot = rewriteSnapshotIndex.get(key);
-    if (snapshot) return snapshot;
-  }
-
-  return undefined;
-}
-
 function tsToStr(v: unknown): string {
   if (!v) return "";
   if (typeof v === "string") {
@@ -264,7 +135,6 @@ export async function GET() {
 
     let allItems: Array<{ record_id: string; fields: Record<string, unknown> }> = [];
     let pageToken: string | undefined;
-    const rewriteSnapshotIndex = await loadRewriteSnapshotIndex();
 
     // 循环拉取所有记录（处理分页）
     while (true) {
@@ -277,11 +147,6 @@ export async function GET() {
     const records: FeishuCollectRecord[] = allItems.map((item) => {
       const f = item.fields;
       const noteLink = buildOpenableNoteLink(toLinkUrl(f["笔记链接"]));
-      const rewriteSnapshot = findRewriteSnapshot(
-        item.record_id,
-        noteLink,
-        rewriteSnapshotIndex
-      );
       const rewriteTagsFromCollect = parseTags(f["二创标签"]);
 
       return {
@@ -297,43 +162,25 @@ export async function GET() {
         cover: toAttachmentUrl(f["封面"]),
         coverAttachmentToken: toAttachmentToken(f["封面"]),
         coverText: toStr(f["封面文案"]),
-        rewriteTitleReplaceInfo:
-          toStr(f[REPLACE_INFO_FIELD_NAMES.title]) ||
-          rewriteSnapshot?.rewriteTitleReplaceInfo ||
-          "",
-        rewriteBodyReplaceInfo:
-          toStr(f[REPLACE_INFO_FIELD_NAMES.body]) ||
-          rewriteSnapshot?.rewriteBodyReplaceInfo ||
-          "",
-        rewriteCoverReplaceInfo:
-          toStr(f[REPLACE_INFO_FIELD_NAMES.cover]) ||
-          rewriteSnapshot?.rewriteCoverReplaceInfo ||
-          "",
-        rewriteDate: tsToStr(f["二创日期"]) || rewriteSnapshot?.rewriteDate || "",
-        rewriteTitle: toStr(f["二创标题"]) || rewriteSnapshot?.rewriteTitle || "",
-        rewriteBody: toStr(f["二创正文"]) || rewriteSnapshot?.rewriteBody || "",
+        rewriteTitleReplaceInfo: toStr(f[REPLACE_INFO_FIELD_NAMES.title]),
+        rewriteBodyReplaceInfo: toStr(f[REPLACE_INFO_FIELD_NAMES.body]),
+        rewriteCoverReplaceInfo: toStr(f[REPLACE_INFO_FIELD_NAMES.cover]),
+        rewriteDate: tsToStr(f["二创日期"]),
+        rewriteTitle: toStr(f["二创标题"]),
+        rewriteBody: toStr(f["二创正文"]),
         rewriteCover:
           toAttachmentUrl(f["二创封面"]) ||
-          rewriteSnapshot?.rewriteCover ||
           toAttachmentUrls(f["封面"])[1] ||
           "",
-        rewriteCoverText:
-          toStr(f["二创封面文案"]) || rewriteSnapshot?.rewriteCoverText || "",
-        rewriteTags:
-          rewriteTagsFromCollect.length > 0
-            ? rewriteTagsFromCollect
-            : rewriteSnapshot?.rewriteTags || [],
-        rewriteRemark: rewriteSnapshot?.rewriteRemark || "",
-        publishPersona:
-          toStr(f["发布人设"]) ||
-          rewriteSnapshot?.publishPersona ||
-          "",
-        recruitmentDirection:
-          toStr(f["招聘方向"]) ||
-          rewriteSnapshot?.recruitmentDirection ||
-          "",
+        rewriteCoverText: toStr(f["二创封面文案"]),
+        rewriteTags: rewriteTagsFromCollect,
+        rewriteRemark: toStr(f["备注"]),
+        publishPersona: toStr(f["发布人设"]),
+        recruitmentDirection: toStr(f["招聘方向"]),
+        publishAccount: toStr(f["发布账号"]),
+        scheduledPublishTime: tsToStr(f["定时发布时间"]),
         isTestPost: toBool(f["测试"]),
-        hasRewritten: toBool(f["已二创"]) || Boolean(rewriteSnapshot),
+        hasRewritten: toBool(f["已二创"]),
         // 标题和正文字段（实际字段名已确认）
         originalTitle: toStr(f["标题"]),
         originalBody: stripTagsFromText(toStr(f["正文"])),
@@ -341,7 +188,10 @@ export async function GET() {
       };
     });
 
-    return NextResponse.json({ records, total: records.length });
+    return NextResponse.json(
+      { records, total: records.length, source: "feishu-collect-table" },
+      { headers: NO_STORE_HEADERS }
+    );
   } catch (e: unknown) {
     const authResponse = authErrorResponse(e);
     if (authResponse) return authResponse;
@@ -349,7 +199,7 @@ export async function GET() {
     console.error("Feishu records error:", e);
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "获取记录失败" },
-      { status: 500 }
+      { status: 500, headers: NO_STORE_HEADERS }
     );
   }
 }

@@ -6,6 +6,7 @@ import {
   Upload,
   Square,
   Play,
+  CalendarDays,
   ChevronDown,
   ChevronUp,
   Check,
@@ -43,7 +44,10 @@ import {
   type ReplaceEntryDraft,
   type ReplaceLibraryScope,
 } from "@/store/rewriteSettingsStore";
-import { usePromptsSettingsStore } from "@/store/promptsSettingsStore";
+import {
+  usePromptsSettingsStore,
+  type PromptExecutionMode,
+} from "@/store/promptsSettingsStore";
 import { dedupeTags, extractTagsFromText, sanitizeTitle } from "@/lib/xhs";
 import { buildOpenableNoteLink } from "@/lib/xhsLink";
 import { PUBLISH_PERSONA_OPTIONS, RECRUITMENT_DIRECTION_OPTIONS } from "@/types";
@@ -84,7 +88,11 @@ const LIBRARY_SCOPES: Array<{ scope: ReplaceLibraryScope; label: string; desc: s
 const SAVE_DRAFT_TARGET_BATCH_BYTES = 16 * 1024 * 1024;
 const SAVE_DRAFT_MAX_BATCH_ITEMS = 2;
 const SAVE_DRAFT_SINGLE_ITEM_SOFT_LIMIT_BYTES = 90 * 1024 * 1024;
+const SAVE_DRAFT_BATCH_RETRY_ATTEMPTS = 3;
+const SAVE_DRAFT_BATCH_RETRY_BASE_DELAY_MS = 1200;
+const FEISHU_RECORDS_ENDPOINT = "/api/feishu/records";
 const MAX_PARALLEL_REWRITES = 6;
+const WEEKDAY_LABELS = ["一", "二", "三", "四", "五", "六", "日"] as const;
 
 type SaveMessageState = {
   text: string;
@@ -110,6 +118,10 @@ type SaveDraftBatchResult = {
 type ParsedFailedResult = {
   resultId: string;
   error: string;
+};
+type PublishAccountsResponse = {
+  accounts?: unknown[];
+  error?: string;
 };
 
 async function callRewriteApi(payload: Record<string, unknown> & { signal?: AbortSignal }) {
@@ -186,6 +198,74 @@ async function readApiJson<T extends { error?: string }>(
         .trim()
         .slice(0, 120) || fallbackMessage,
   } as T;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function getErrorMessage(error: unknown, fallback = "保存失败") {
+  if (error instanceof Error) return error.message || fallback;
+  if (typeof error === "string" && error.trim()) return error;
+  return fallback;
+}
+
+function isRetryableSaveBatchError(error: unknown) {
+  const message = getErrorMessage(error).toLowerCase();
+  return [
+    "failed to fetch",
+    "networkerror",
+    "network error",
+    "load failed",
+    "timeout",
+    "timed out",
+    "request trigger frequency limit",
+    "too many requests",
+    "rate limit",
+    "502",
+    "503",
+    "504",
+  ].some((keyword) => message.includes(keyword));
+}
+
+async function saveDraftBatch(
+  batch: RewriteResult[],
+  payload: {
+    extractReplacePromptTemplate: string;
+    extractReplacePromptMode: PromptExecutionMode;
+    extractPromptIncludesOriginalAndRewritten: boolean;
+    extractReplaceEnabled: boolean;
+  }
+) {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= SAVE_DRAFT_BATCH_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      const res = await apiFetch("/api/feishu/save-draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          results: batch,
+          ...payload,
+        }),
+      });
+      const data = await readApiJson<SaveDraftResponse>(res, "保存失败");
+      if (!res.ok) throw new Error(data.error || "保存失败");
+      return data;
+    } catch (error) {
+      lastError = error;
+      if (
+        attempt >= SAVE_DRAFT_BATCH_RETRY_ATTEMPTS ||
+        !isRetryableSaveBatchError(error)
+      ) {
+        throw error;
+      }
+
+      await sleep(SAVE_DRAFT_BATCH_RETRY_BASE_DELAY_MS * attempt);
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("保存失败");
 }
 
 async function readImageSize(src: string) {
@@ -478,6 +558,34 @@ function normalizeSavedText(value: string | undefined) {
   return (value || "").replace(/\r\n/g, "\n").trim();
 }
 
+function isScheduledPublishTime(value: string | undefined) {
+  return /^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}$/.test((value || "").trim());
+}
+
+function formatDatePart(date: Date) {
+  return `${date.getFullYear()}-${formatTwoDigits(date.getMonth() + 1)}-${formatTwoDigits(date.getDate())}`;
+}
+
+function parseScheduledPublishDate(value: string | undefined) {
+  if (!isScheduledPublishTime(value)) return null;
+  const [datePart, timePart] = value!.split(" ");
+  const [year, month, day] = datePart.split("-").map(Number);
+  const [hour, minute] = timePart.split(":").map(Number);
+  const date = new Date(year, month - 1, day, hour, minute, 0, 0);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day ||
+    date.getHours() !== hour ||
+    date.getMinutes() !== minute
+  ) {
+    return null;
+  }
+
+  return date;
+}
+
 function normalizeSavedTags(tags: string[] | undefined) {
   return dedupeTags(tags || []);
 }
@@ -493,6 +601,8 @@ function buildRewriteSaveFingerprint(
     | "rewriteRemark"
     | "publishPersona"
     | "recruitmentDirection"
+    | "publishAccount"
+    | "scheduledPublishTime"
   >
 ) {
   return JSON.stringify({
@@ -504,6 +614,8 @@ function buildRewriteSaveFingerprint(
     rewriteRemark: normalizeSavedText(value.rewriteRemark),
     publishPersona: normalizeSavedText(value.publishPersona),
     recruitmentDirection: normalizeSavedText(value.recruitmentDirection),
+    publishAccount: normalizeSavedText(value.publishAccount),
+    scheduledPublishTime: normalizeSavedText(value.scheduledPublishTime),
   });
 }
 
@@ -516,6 +628,8 @@ function buildSavedSnapshotFallbackFingerprint(note: RewriteResult["originalNote
     rewriteRemark: normalizeSavedText(note.rewriteRemark),
     publishPersona: normalizeSavedText(note.publishPersona),
     recruitmentDirection: normalizeSavedText(note.recruitmentDirection),
+    publishAccount: normalizeSavedText(note.publishAccount),
+    scheduledPublishTime: normalizeSavedText(note.scheduledPublishTime),
   });
 }
 
@@ -528,6 +642,8 @@ function buildCurrentResultFallbackFingerprint(result: RewriteResult) {
     rewriteRemark: normalizeSavedText(result.rewriteRemark),
     publishPersona: normalizeSavedText(result.publishPersona),
     recruitmentDirection: normalizeSavedText(result.recruitmentDirection),
+    publishAccount: normalizeSavedText(result.publishAccount),
+    scheduledPublishTime: normalizeSavedText(result.scheduledPublishTime),
   });
 }
 
@@ -541,6 +657,8 @@ function buildTrackedEditBaseline(value: RewriteEditBaseline): RewriteEditBaseli
     rewriteRemark: value.rewriteRemark || "",
     publishPersona: value.publishPersona || "",
     recruitmentDirection: value.recruitmentDirection || "",
+    publishAccount: value.publishAccount || "",
+    scheduledPublishTime: value.scheduledPublishTime || "",
   };
 }
 
@@ -557,6 +675,8 @@ function buildCurrentTrackedEditBaseline(
     rewriteRemark: overrides.rewriteRemark ?? result.rewriteRemark ?? "",
     publishPersona: overrides.publishPersona ?? result.publishPersona,
     recruitmentDirection: overrides.recruitmentDirection ?? result.recruitmentDirection,
+    publishAccount: overrides.publishAccount ?? result.publishAccount,
+    scheduledPublishTime: overrides.scheduledPublishTime ?? result.scheduledPublishTime,
   });
 }
 
@@ -580,6 +700,8 @@ function compactOriginalNoteForSave(note: RewriteResult["originalNote"]) {
     originalTags: note.originalTags,
     publishPersona: note.publishPersona,
     recruitmentDirection: note.recruitmentDirection,
+    publishAccount: note.publishAccount,
+    scheduledPublishTime: note.scheduledPublishTime,
   };
 }
 
@@ -637,6 +759,8 @@ function buildSaveDraftResult(result: RewriteResult): RewriteResult {
     rewriteRemark: result.rewriteRemark,
     publishPersona: result.publishPersona,
     recruitmentDirection: result.recruitmentDirection,
+    publishAccount: result.publishAccount,
+    scheduledPublishTime: result.scheduledPublishTime,
     titleReplaceInfo: result.titleReplaceInfo,
     bodyReplaceInfo: result.bodyReplaceInfo,
     coverReplaceInfo: result.coverReplaceInfo,
@@ -699,6 +823,12 @@ function mergeTrackedEditBaseline(
       updates.recruitmentDirection ??
       result.editBaseline?.recruitmentDirection ??
       result.recruitmentDirection,
+    publishAccount:
+      updates.publishAccount ?? result.editBaseline?.publishAccount ?? result.publishAccount,
+    scheduledPublishTime:
+      updates.scheduledPublishTime ??
+      result.editBaseline?.scheduledPublishTime ??
+      result.scheduledPublishTime,
   });
 }
 
@@ -706,6 +836,8 @@ const EDITED_CATEGORY_LABELS: Record<keyof RewriteEditBaseline, string> = {
   rewrittenCover: "二创封面已编辑",
   publishPersona: "发布人设已编辑",
   recruitmentDirection: "招聘方向已编辑",
+  publishAccount: "发布账号已编辑",
+  scheduledPublishTime: "发布时间已编辑",
   rewrittenTitle: "二创标题已编辑",
   rewrittenBody: "二创正文已编辑",
   rewrittenTags: "二创标签已编辑",
@@ -717,6 +849,8 @@ const EDITED_CATEGORY_ORDER: Array<keyof RewriteEditBaseline> = [
   "rewrittenCover",
   "publishPersona",
   "recruitmentDirection",
+  "publishAccount",
+  "scheduledPublishTime",
   "rewrittenTitle",
   "rewrittenBody",
   "rewrittenTags",
@@ -855,6 +989,8 @@ function isRewriteResultSaved(result: RewriteResult, note: RewriteResult["origin
     rewriteRemark: result.rewriteRemark || "",
     publishPersona: result.publishPersona,
     recruitmentDirection: result.recruitmentDirection,
+    publishAccount: result.publishAccount,
+    scheduledPublishTime: result.scheduledPublishTime,
   });
 
   if (result.savedFingerprint) {
@@ -887,6 +1023,9 @@ function getLiveOriginalNote(
     publishPersona: liveRecord.publishPersona ?? result.originalNote.publishPersona,
     recruitmentDirection:
       liveRecord.recruitmentDirection ?? result.originalNote.recruitmentDirection,
+    publishAccount: liveRecord.publishAccount ?? result.originalNote.publishAccount,
+    scheduledPublishTime:
+      liveRecord.scheduledPublishTime ?? result.originalNote.scheduledPublishTime,
   };
 }
 
@@ -944,6 +1083,8 @@ export default function RewriteModule() {
   const [bulkExpanded, setBulkExpanded] = useState(true);
   const [bulkExpandVersion, setBulkExpandVersion] = useState(0);
   const [bulkMenuOpen, setBulkMenuOpen] = useState<"persona" | "direction" | null>(null);
+  const [publishAccounts, setPublishAccounts] = useState<string[]>([]);
+  const [publishAccountsLoading, setPublishAccountsLoading] = useState(false);
   const [bulkGeneratedEditing, setBulkGeneratedEditing] = useState(false);
   const [bulkGeneratedEditIntent, setBulkGeneratedEditIntent] =
     useState<BulkGeneratedEditIntent | null>(null);
@@ -972,6 +1113,39 @@ export default function RewriteModule() {
       ),
     [collectRecords]
   );
+
+  const loadPublishAccounts = useCallback(async () => {
+    setPublishAccountsLoading(true);
+    try {
+      const response = await apiFetch("/api/feishu/publish-accounts");
+      const data = await readApiJson<PublishAccountsResponse>(
+        response,
+        "获取发布账号失败"
+      );
+      if (!response.ok) throw new Error(data.error || "获取发布账号失败");
+
+      const accounts = Array.isArray(data.accounts)
+        ? data.accounts
+            .filter((item): item is string => typeof item === "string")
+            .map((item) => item.trim())
+            .filter(Boolean)
+        : [];
+      setPublishAccounts(Array.from(new Set(accounts)));
+    } catch (error) {
+      console.error("Load publish accounts failed:", error);
+      showSaveMessage(
+        error instanceof Error ? error.message : "获取发布账号失败",
+        "error",
+        3000
+      );
+    } finally {
+      setPublishAccountsLoading(false);
+    }
+  }, [showSaveMessage]);
+
+  useEffect(() => {
+    void loadPublishAccounts();
+  }, [loadPublishAccounts]);
 
   const syncOriginalNoteToCollect = useCallback(
     async (recordId: string, updates: Partial<RewriteResult["originalNote"]>) => {
@@ -1398,6 +1572,8 @@ export default function RewriteModule() {
           rewriteRemark: result.rewriteRemark || "",
           publishPersona: result.publishPersona,
           recruitmentDirection: result.recruitmentDirection || "",
+          publishAccount: result.publishAccount || "",
+          scheduledPublishTime: result.scheduledPublishTime || "",
         });
 
         updateRewriteResult(resultId, {
@@ -1579,19 +1755,12 @@ export default function RewriteModule() {
           });
         }
 
-        const res = await apiFetch("/api/feishu/save-draft", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            results: batch,
-            extractReplacePromptTemplate: extractReplacePrompt,
-            extractReplacePromptMode,
-            extractPromptIncludesOriginalAndRewritten,
-            extractReplaceEnabled: autoMergeExtractedEntries,
-          }),
+        const data = await saveDraftBatch(batch, {
+          extractReplacePromptTemplate: extractReplacePrompt,
+          extractReplacePromptMode,
+          extractPromptIncludesOriginalAndRewritten,
+          extractReplaceEnabled: autoMergeExtractedEntries,
         });
-        const data = await readApiJson<SaveDraftResponse>(res, "保存失败");
-        if (!res.ok) throw new Error(data.error || "保存失败");
         batchResults.push({ data, selected: batch });
       }
 
@@ -1668,6 +1837,8 @@ export default function RewriteModule() {
               rewriteRemark: result.rewriteRemark || "",
               publishPersona: result.publishPersona,
               recruitmentDirection: result.recruitmentDirection,
+              publishAccount: result.publishAccount,
+              scheduledPublishTime: result.scheduledPublishTime,
             }),
             originalNote: {
               ...result.originalNote,
@@ -1684,6 +1855,8 @@ export default function RewriteModule() {
               rewriteDate,
               publishPersona: result.publishPersona,
               recruitmentDirection: result.recruitmentDirection,
+              publishAccount: result.publishAccount,
+              scheduledPublishTime: result.scheduledPublishTime,
             },
           });
         });
@@ -1701,7 +1874,13 @@ export default function RewriteModule() {
         deselectRewriteIds(Array.from(persistedIds));
 
         try {
-          const recordsRes = await apiFetch("/api/feishu/records");
+          const recordsRes = await apiFetch(`${FEISHU_RECORDS_ENDPOINT}?t=${Date.now()}`, {
+            cache: "no-store",
+            headers: {
+              "Cache-Control": "no-cache",
+              Pragma: "no-cache",
+            },
+          });
           const recordsData = await recordsRes.json();
           if (recordsRes.ok) {
             const nextRecords = (recordsData.records || []) as Array<
@@ -1747,6 +1926,9 @@ export default function RewriteModule() {
                   publishPersona: liveRecord.publishPersona || result.publishPersona,
                   recruitmentDirection:
                     liveRecord.recruitmentDirection || result.recruitmentDirection,
+                  publishAccount: liveRecord.publishAccount || result.publishAccount,
+                  scheduledPublishTime:
+                    liveRecord.scheduledPublishTime || result.scheduledPublishTime,
                 },
               });
             });
@@ -2543,6 +2725,9 @@ export default function RewriteModule() {
                   bulkExpanded={bulkExpanded}
                   bulkExpandVersion={bulkExpandVersion}
                   bulkEditIntent={bulkGeneratedEditIntent}
+                  publishAccounts={publishAccounts}
+                  publishAccountsLoading={publishAccountsLoading}
+                  onReloadPublishAccounts={loadPublishAccounts}
                   onToggleSelect={() => toggleRewriteSelect(result.id)}
                   onUpdate={(updates) => updateRewriteResult(result.id, updates)}
                   onOriginalNoteUpdate={(updates) =>
@@ -2571,6 +2756,9 @@ function RewriteRow({
   bulkExpanded,
   bulkExpandVersion,
   bulkEditIntent,
+  publishAccounts,
+  publishAccountsLoading,
+  onReloadPublishAccounts,
   onToggleSelect,
   onUpdate,
   onOriginalNoteUpdate,
@@ -2587,6 +2775,9 @@ function RewriteRow({
   bulkExpanded: boolean;
   bulkExpandVersion: number;
   bulkEditIntent: BulkGeneratedEditIntent | null;
+  publishAccounts: string[];
+  publishAccountsLoading: boolean;
+  onReloadPublishAccounts: () => Promise<void>;
   onToggleSelect: () => void;
   onUpdate: (updates: Partial<RewriteResult>) => void;
   onOriginalNoteUpdate: (updates: Partial<RewriteResult["originalNote"]>) => Promise<void>;
@@ -2687,6 +2878,8 @@ function RewriteRow({
   const selectedTemplateAssetId = currentTemplateAsset?.id || resolvedCoverTemplate.asset.id;
   const selectedPublishPersona = (result.publishPersona || "").trim();
   const selectedRecruitmentDirection = (result.recruitmentDirection || "").trim();
+  const selectedPublishAccount = (result.publishAccount || "").trim();
+  const selectedScheduledPublishTime = (result.scheduledPublishTime || "").trim();
   const isSaved = isRewriteResultSaved(result, note);
   const editedCategories = getEditedRewriteCategories(result, draftOverrides);
   const effectiveFieldModifiedAt = getEffectiveFieldModifiedAt(result);
@@ -3070,6 +3263,8 @@ function RewriteRow({
       "rewrittenCover",
       "publishPersona",
       "recruitmentDirection",
+      "publishAccount",
+      "scheduledPublishTime",
       "rewrittenTitle",
       "rewrittenBody",
       "rewrittenTags",
@@ -3121,6 +3316,18 @@ function RewriteRow({
   function handleRecruitmentDirectionSelect(value: string) {
     applyManualUpdate({
       recruitmentDirection: selectedRecruitmentDirection === value ? "" : value,
+    });
+  }
+
+  function handlePublishAccountSelect(value: string) {
+    applyManualUpdate({
+      publishAccount: selectedPublishAccount === value ? "" : value,
+    });
+  }
+
+  function handleScheduledPublishTimeChange(value: string) {
+    applyManualUpdate({
+      scheduledPublishTime: selectedScheduledPublishTime === value ? "" : value,
     });
   }
 
@@ -3751,6 +3958,24 @@ function RewriteRow({
                             onSelect={handleRecruitmentDirectionSelect}
                             disabled={isProcessing}
                           />
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                            <span className="text-[13px] font-semibold text-gray-500">
+                              定时发布：
+                            </span>
+                            <PublishAccountSelect
+                              accounts={publishAccounts}
+                              value={selectedPublishAccount}
+                              loading={publishAccountsLoading}
+                              disabled={isProcessing}
+                              onSelect={handlePublishAccountSelect}
+                              onReload={() => void onReloadPublishAccounts()}
+                            />
+                            <ScheduleDateTimePicker
+                              value={selectedScheduledPublishTime}
+                              disabled={isProcessing}
+                              onChange={handleScheduledPublishTimeChange}
+                            />
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -4177,6 +4402,364 @@ function SingleSelectChecklist({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function PublishAccountSelect({
+  accounts,
+  value,
+  loading,
+  disabled,
+  onSelect,
+  onReload,
+}: {
+  accounts: string[];
+  value: string;
+  loading: boolean;
+  disabled: boolean;
+  onSelect: (value: string) => void;
+  onReload: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target as Node;
+      if (buttonRef.current?.contains(target) || panelRef.current?.contains(target)) {
+        return;
+      }
+      setOpen(false);
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [open]);
+
+  return (
+    <div className="relative">
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => {
+          if (disabled) return;
+          setOpen((current) => !current);
+        }}
+        disabled={disabled}
+        className={clsx(
+          "inline-flex min-w-[112px] items-center justify-between gap-2 rounded-lg border px-2.5 py-1 text-[13px] font-medium transition-colors",
+          value
+            ? "border-red-100 bg-red-50 text-red-500"
+            : "border-gray-200 bg-white text-gray-500 hover:border-gray-300 hover:text-gray-700",
+          disabled && "cursor-not-allowed opacity-60"
+        )}
+      >
+        <span className="truncate">{value || "发布账号"}</span>
+        <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+      </button>
+
+      {open && (
+        <div
+          ref={panelRef}
+          className="absolute left-0 top-full z-40 mt-1 w-48 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl"
+        >
+          <div className="max-h-56 overflow-y-auto py-1">
+            {loading ? (
+              <div className="px-3 py-2 text-xs text-gray-400">正在读取发布账号...</div>
+            ) : accounts.length > 0 ? (
+              accounts.map((account) => {
+                const selected = account === value;
+
+                return (
+                  <button
+                    key={account}
+                    type="button"
+                    onClick={() => {
+                      onSelect(account);
+                      setOpen(false);
+                    }}
+                    className={clsx(
+                      "flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[13px] transition-colors",
+                      selected
+                        ? "bg-red-50 text-red-500"
+                        : "text-gray-600 hover:bg-gray-50 hover:text-gray-800"
+                    )}
+                  >
+                    <span className="truncate">{account}</span>
+                    {selected && <Check className="h-3.5 w-3.5 shrink-0" />}
+                  </button>
+                );
+              })
+            ) : (
+              <div className="px-3 py-2 text-xs leading-5 text-gray-400">
+                二创库暂无发布账号
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              onReload();
+            }}
+            className="flex w-full items-center justify-center border-t border-gray-100 px-3 py-2 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700"
+          >
+            重新读取
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ScheduleDateTimePicker({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  const selectedDate = parseScheduledPublishDate(value);
+  const initialDate = selectedDate || new Date();
+  const [open, setOpen] = useState(false);
+  const [step, setStep] = useState<"calendar" | "time">("calendar");
+  const [viewYear, setViewYear] = useState(initialDate.getFullYear());
+  const [viewMonth, setViewMonth] = useState(initialDate.getMonth());
+  const [selectedDatePart, setSelectedDatePart] = useState(
+    selectedDate ? formatDatePart(selectedDate) : ""
+  );
+  const [timeDraft, setTimeDraft] = useState(
+    selectedDate
+      ? `${formatTwoDigits(selectedDate.getHours())}:${formatTwoDigits(selectedDate.getMinutes())}`
+      : ""
+  );
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+
+  function syncPickerFromValue() {
+    const parsed = parseScheduledPublishDate(value);
+    setStep("calendar");
+    if (!parsed) {
+      setSelectedDatePart("");
+      setTimeDraft("");
+      return;
+    }
+
+    setViewYear(parsed.getFullYear());
+    setViewMonth(parsed.getMonth());
+    setSelectedDatePart(formatDatePart(parsed));
+    setTimeDraft(`${formatTwoDigits(parsed.getHours())}:${formatTwoDigits(parsed.getMinutes())}`);
+  }
+
+  useEffect(() => {
+    if (!open) return;
+
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target as Node;
+      if (buttonRef.current?.contains(target) || panelRef.current?.contains(target)) {
+        return;
+      }
+      setOpen(false);
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [open]);
+
+  function moveMonth(delta: number) {
+    const next = new Date(viewYear, viewMonth + delta, 1);
+    setViewYear(next.getFullYear());
+    setViewMonth(next.getMonth());
+  }
+
+  function selectDay(day: Date) {
+    const datePart = formatDatePart(day);
+    setSelectedDatePart(datePart);
+    setStep("time");
+  }
+
+  function normalizeTimeDraft(nextValue: string) {
+    const digits = nextValue.replace(/\D/g, "").slice(0, 4);
+    if (digits.length <= 2) return digits;
+    return `${digits.slice(0, 2)}:${digits.slice(2)}`;
+  }
+
+  function commit(datePart: string, timeValue: string) {
+    if (!datePart || !/^\d{2}:\d{2}$/.test(timeValue)) return;
+
+    const [hour, minute] = timeValue.split(":").map(Number);
+    if (hour > 23 || minute > 59) return;
+
+    onChange(`${datePart} ${timeValue}`);
+    setOpen(false);
+  }
+
+  const canCommitTime = selectedDatePart && /^\d{2}:\d{2}$/.test(timeDraft);
+
+  const firstDay = new Date(viewYear, viewMonth, 1);
+  const gridStart = new Date(firstDay);
+  const mondayBasedOffset = (firstDay.getDay() + 6) % 7;
+  gridStart.setDate(firstDay.getDate() - mondayBasedOffset);
+  const days = Array.from({ length: 42 }, (_, index) => {
+    const day = new Date(gridStart);
+    day.setDate(gridStart.getDate() + index);
+    return day;
+  });
+
+  return (
+    <div className="relative">
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => {
+          if (disabled) return;
+          setOpen((current) => {
+            if (!current) syncPickerFromValue();
+            return !current;
+          });
+        }}
+        disabled={disabled}
+        className={clsx(
+          "inline-flex min-w-[158px] items-center justify-between gap-2 rounded-lg border px-2.5 py-1 text-[13px] font-medium transition-colors",
+          value
+            ? "border-blue-100 bg-blue-50 text-blue-600"
+            : "border-gray-200 bg-white text-gray-500 hover:border-gray-300 hover:text-gray-700",
+          disabled && "cursor-not-allowed opacity-60"
+        )}
+      >
+        <span className="truncate">{value || "发布时间"}</span>
+        <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+      </button>
+
+      {open && (
+        <div
+          ref={panelRef}
+          className="absolute left-0 top-full z-40 mt-1 w-[292px] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl"
+        >
+          {step === "calendar" ? (
+            <>
+              <div className="flex items-center justify-between px-4 py-3">
+                <button
+                  type="button"
+                  onClick={() => moveMonth(-1)}
+                  className="rounded-lg p-1 text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-700"
+                  aria-label="上个月"
+                >
+                  <ChevronDown className="h-4 w-4 rotate-90" />
+                </button>
+                <div className="text-sm font-semibold text-gray-700">
+                  {viewYear}年 {viewMonth + 1}月
+                </div>
+                <button
+                  type="button"
+                  onClick={() => moveMonth(1)}
+                  className="rounded-lg p-1 text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-700"
+                  aria-label="下个月"
+                >
+                  <ChevronDown className="h-4 w-4 -rotate-90" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-7 gap-1 px-4 pb-2 text-center text-xs text-gray-400">
+                {WEEKDAY_LABELS.map((label) => (
+                  <div key={label} className="py-1">
+                    {label}
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-7 gap-1 px-4 pb-3">
+                {days.map((day) => {
+                  const datePart = formatDatePart(day);
+                  const inMonth = day.getMonth() === viewMonth;
+                  const selected = datePart === selectedDatePart;
+                  const today = datePart === formatDatePart(new Date());
+
+                  return (
+                    <button
+                      key={datePart}
+                      type="button"
+                      onClick={() => selectDay(day)}
+                      className={clsx(
+                        "flex h-8 items-center justify-center rounded-full text-sm transition-colors",
+                        selected
+                          ? "bg-blue-500 text-white"
+                          : inMonth
+                            ? "text-gray-700 hover:bg-blue-50 hover:text-blue-600"
+                            : "text-gray-300 hover:bg-gray-50",
+                        today && !selected && "ring-1 ring-blue-200"
+                      )}
+                    >
+                      {day.getDate()}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          ) : (
+            <div className="px-4 py-3">
+              <div className="mb-3 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setStep("calendar")}
+                  className="inline-flex items-center gap-1 rounded-lg px-1 py-1 text-xs font-medium text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-700"
+                >
+                  <ChevronDown className="h-3.5 w-3.5 rotate-90" />
+                  日期
+                </button>
+                <div className="text-sm font-semibold text-gray-700">
+                  {selectedDatePart}
+                </div>
+              </div>
+              <div className="mb-2 text-xs font-medium text-gray-500">分钟选择</div>
+              <input
+                value={timeDraft}
+                onChange={(event) => {
+                  setTimeDraft(normalizeTimeDraft(event.target.value));
+                }}
+                onBlur={() => {
+                  if (/^\d{1,2}$/.test(timeDraft)) {
+                    setTimeDraft(`${formatTwoDigits(Number(timeDraft))}:00`);
+                  }
+                }}
+                placeholder="xx:xx"
+                inputMode="numeric"
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 outline-none transition-colors placeholder:text-gray-300 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+              />
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange("");
+                    setSelectedDatePart("");
+                    setTimeDraft("");
+                    setStep("calendar");
+                    setOpen(false);
+                  }}
+                  className="text-xs text-gray-400 transition-colors hover:text-gray-600"
+                >
+                  清空
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (canCommitTime) commit(selectedDatePart, timeDraft);
+                  }}
+                  disabled={!canCommitTime}
+                  className="rounded-lg bg-blue-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400"
+                >
+                  确定
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

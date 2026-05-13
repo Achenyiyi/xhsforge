@@ -5,7 +5,6 @@ import {
   updateCollectRecords,
   getTableFields,
   getRecordInTable,
-  getRecordsInTable,
   addTableField,
   TABLE_ID,
   uploadAttachmentToBitable,
@@ -58,6 +57,8 @@ const REWRITE_TABLE_FIELDS = [
   { field_name: "备注", type: FIELD_TYPE_TEXT },
   { field_name: "发布人设", type: FIELD_TYPE_SINGLE_SELECT },
   { field_name: "招聘方向", type: FIELD_TYPE_SINGLE_SELECT },
+  { field_name: "发布账号", type: FIELD_TYPE_SINGLE_SELECT },
+  { field_name: "发布时间", type: FIELD_TYPE_DATETIME },
   { field_name: COMBINED_REPLACE_INFO_FIELD_NAME, type: FIELD_TYPE_TEXT },
   { field_name: "笔记链接", type: FIELD_TYPE_TEXT },
   { field_name: "源记录ID", type: FIELD_TYPE_TEXT },
@@ -98,11 +99,6 @@ type FailedResultItem = {
   title: string;
   error: string;
 };
-type ExistingRewriteRecord = {
-  sourceRecordId: string;
-  recordId: string;
-};
-
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -173,6 +169,27 @@ async function mapWithConcurrency<T, R>(
   const workerCount = Math.min(Math.max(concurrency, 1), items.length);
   await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
   return settledResults;
+}
+
+function syncCollectUpdatesInBackground(
+  collectUpdates: CollectRecordUpdate[],
+  rewriterName: string
+) {
+  if (collectUpdates.length === 0) return;
+
+  void (async () => {
+    try {
+      await withRetry(
+        () => updateCollectRecords(collectUpdates),
+        "同步爆款库二创快照"
+      );
+      console.info(
+        `完成同步爆款库二创快照 user=${rewriterName} count=${collectUpdates.length}`
+      );
+    } catch (error) {
+      console.error(`Update collect records warning user=${rewriterName}:`, error);
+    }
+  })();
 }
 
 function assertFieldTypeOrThrow(
@@ -505,6 +522,38 @@ function buildInheritedTags(result: RewriteResult): string[] {
   return dedupeTags(result.rewrittenTags || []);
 }
 
+function parseScheduledPublishTime(value: string | undefined) {
+  const normalized = (value || "").trim();
+  if (!normalized) return undefined;
+
+  const match = normalized.match(
+    /^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/
+  );
+  if (!match) {
+    throw new Error("发布时间格式错误，请使用 YYYY-MM-DD HH:mm");
+  }
+
+  const [, yearValue, monthValue, dayValue, hourValue, minuteValue] = match;
+  const year = Number(yearValue);
+  const month = Number(monthValue);
+  const day = Number(dayValue);
+  const hour = Number(hourValue);
+  const minute = Number(minuteValue);
+  const date = new Date(year, month - 1, day, hour, minute, 0, 0);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day ||
+    date.getHours() !== hour ||
+    date.getMinutes() !== minute
+  ) {
+    throw new Error("发布时间不是有效日期，请重新选择");
+  }
+
+  return date.getTime();
+}
+
 async function ensureRewriteTable() {
   if (!REWRITE_TABLE_ID) {
     throw new Error("未配置 FEISHU_REWRITE_TABLE_ID，当前仅支持写入固定二创库。");
@@ -538,6 +587,18 @@ async function ensureRewriteTable() {
     [FIELD_TYPE_SINGLE_SELECT, FIELD_TYPE_TEXT],
     "二创库字段「招聘方向」当前不是单选或文本字段，无法写入招聘方向。请在飞书里把它改成单选字段。"
   );
+  assertFieldTypeInOrThrow(
+    fieldTypeMap,
+    "发布账号",
+    [FIELD_TYPE_SINGLE_SELECT, FIELD_TYPE_TEXT],
+    "二创库字段「发布账号」当前不是单选或文本字段，无法写入发布账号。请在飞书里把它改成单选字段。"
+  );
+  assertFieldTypeOrThrow(
+    fieldTypeMap,
+    "发布时间",
+    FIELD_TYPE_DATETIME,
+    "二创库字段「发布时间」当前不是日期字段，无法写入定时发布时间。请在飞书里把它改成日期字段。"
+  );
   assertFieldTypeOrThrow(
     fieldTypeMap,
     "备注",
@@ -558,58 +619,6 @@ async function ensureRewriteTable() {
     tableName: "二创库",
     fields,
   };
-}
-
-async function findExistingRewriteRecords(
-  tableId: string,
-  results: RewriteResult[],
-  rewriterName: string
-): Promise<Map<string, ExistingRewriteRecord>> {
-  const sourceIds = new Set(
-    results
-      .map((result) => result.originalNote.recordId || result.recordId)
-      .filter(Boolean)
-  );
-  const existingRecords = new Map<string, ExistingRewriteRecord>();
-  if (sourceIds.size === 0) return existingRecords;
-
-  let pageToken: string | undefined;
-  for (let page = 0; page < 30; page += 1) {
-    const data = await withRetry(
-      () => getRecordsInTable(tableId, 100, pageToken),
-      `查询二创库已有记录 ${page + 1}`
-    );
-
-    for (const record of data.items || []) {
-      const sourceRecordId = String(record.fields["源记录ID"] || "");
-      if (!sourceIds.has(sourceRecordId)) continue;
-
-      const title = String(record.fields["二创标题"] || record.fields["标题"] || "").trim();
-      const body = String(record.fields["二创正文"] || "").trim();
-      const existingRewriterName = String(record.fields["二创人"] || "").trim();
-      if (existingRewriterName !== rewriterName) continue;
-
-      const existingKey = `${existingRewriterName}|${sourceRecordId}|${title}|${body}`;
-      if (!existingRecords.has(existingKey)) {
-        existingRecords.set(existingKey, {
-          sourceRecordId,
-          recordId: record.record_id,
-        });
-      }
-    }
-
-    if (!data.has_more || !data.page_token) break;
-    pageToken = data.page_token;
-  }
-
-  return existingRecords;
-}
-
-function buildExistingRewriteKey(result: RewriteResult, rewriterName: string) {
-  const sourceRecordId = result.originalNote.recordId || result.recordId;
-  const title = (result.rewrittenTitle || result.originalNote.originalTitle || "").trim();
-  const body = (result.rewrittenBody || "").trim();
-  return `${rewriterName}|${sourceRecordId}|${title}|${body}`;
 }
 
 function buildRewriteTableFields(params: {
@@ -640,6 +649,9 @@ function buildRewriteTableFields(params: {
   );
   const normalizedRewrittenCoverText = normalizeRewrittenCoverTextForStorage(
     result.rewrittenCoverText || ""
+  );
+  const scheduledPublishTimestamp = parseScheduledPublishTime(
+    result.scheduledPublishTime
   );
 
   setIfFieldExists(fields, targetFieldTypeMap, "二创日期", rewriteTimestamp);
@@ -675,6 +687,10 @@ function buildRewriteTableFields(params: {
   );
   setIfFieldHasValue(fields, targetFieldTypeMap, "发布人设", result.publishPersona);
   setIfFieldHasValue(fields, targetFieldTypeMap, "招聘方向", result.recruitmentDirection);
+  setIfFieldHasValue(fields, targetFieldTypeMap, "发布账号", result.publishAccount);
+  if (scheduledPublishTimestamp) {
+    setIfFieldExists(fields, targetFieldTypeMap, "发布时间", scheduledPublishTimestamp);
+  }
   setIfFieldHasValue(
     fields,
     targetFieldTypeMap,
@@ -772,13 +788,11 @@ export async function POST(req: NextRequest) {
     const promptTemplate = extractReplacePromptTemplate || undefined;
     const promptMode = normalizePromptMode(extractReplacePromptMode);
     const shouldExtractReplaceInfo = extractReplaceEnabled !== false;
-    const existingRewriteRecords = await findExistingRewriteRecords(
-      tableId,
-      persistResults,
-      rewriterName
-    );
-    const claimedRewriteKeys = new Set<string>();
     const originalCoverAttachmentTasks = new Map<string, Promise<UploadedAttachment | null>>();
+
+    console.info(
+      `收到保存二创请求 user=${rewriterName} count=${persistResults.length} extractReplace=${shouldExtractReplaceInfo}`
+    );
 
     async function getOriginalCoverAttachment(result: RewriteResult) {
       const sourceRecordId = result.originalNote.recordId || result.recordId;
@@ -848,27 +862,7 @@ export async function POST(req: NextRequest) {
     }
 
     async function persistSingleResult(result: RewriteResult): Promise<PersistedResultItem> {
-      const rewriteKey = buildExistingRewriteKey(result, rewriterName);
-      const existingRecord = existingRewriteRecords.get(rewriteKey);
-      if (existingRecord) {
-        console.info(
-          `二创库已存在，跳过重复写入 result=${result.id} source=${existingRecord.sourceRecordId} record=${existingRecord.recordId}`
-        );
-        return {
-          result,
-          extractedByScope: { title: "", body: "", cover: "" },
-        };
-      }
-      if (claimedRewriteKeys.has(rewriteKey)) {
-        console.info(`本次请求内发现重复二创，跳过 result=${result.id}`);
-        return {
-          result,
-          extractedByScope: { title: "", body: "", cover: "" },
-        };
-      }
-      claimedRewriteKeys.add(rewriteKey);
-
-      console.info(`开始保存二创 result=${result.id} title=${result.rewrittenTitle || result.originalNote.originalTitle || ""}`);
+      console.info(`开始保存二创 user=${rewriterName} result=${result.id} title=${result.rewrittenTitle || result.originalNote.originalTitle || ""}`);
       const [extractedByScope, originalCoverAttachment, draftCoverAttachment] =
         await Promise.all([
           shouldExtractReplaceInfo
@@ -898,7 +892,7 @@ export async function POST(req: NextRequest) {
         () => createRecordsInTable(tableId, [rewriteRecord]),
         `写入二创库 ${result.id}`
       );
-      console.info(`完成写入二创库 result=${result.id}`);
+      console.info(`完成写入二创库 user=${rewriterName} result=${result.id}`);
 
       const sourceRecordId = result.originalNote.recordId || result.recordId;
       const collectFields = buildCollectUpdateFields(
@@ -949,19 +943,8 @@ export async function POST(req: NextRequest) {
       collectUpdateMap.set(item.collectUpdate.record_id, item.collectUpdate);
     });
 
-    let collectUpdateWarning = "";
     const collectUpdates = Array.from(collectUpdateMap.values());
-    if (collectUpdates.length > 0) {
-      try {
-        await withRetry(
-          () => updateCollectRecords(collectUpdates),
-          "同步爆款库二创快照"
-        );
-      } catch (error) {
-        collectUpdateWarning = getErrorMessage(error);
-        console.error("Update collect records warning:", error);
-      }
-    }
+    syncCollectUpdatesInBackground(collectUpdates, rewriterName);
 
     const newlyExtractedByScope = {
       title: persistedItems
@@ -985,7 +968,6 @@ export async function POST(req: NextRequest) {
       tableId,
       tableName,
       newlyExtractedByScope,
-      collectUpdateWarning,
     });
   } catch (e: unknown) {
     const authResponse = authErrorResponse(e);
