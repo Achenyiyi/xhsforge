@@ -562,7 +562,8 @@ async function ensureRewriteTable() {
 
 async function findExistingRewriteRecords(
   tableId: string,
-  results: RewriteResult[]
+  results: RewriteResult[],
+  rewriterName: string
 ): Promise<Map<string, ExistingRewriteRecord>> {
   const sourceIds = new Set(
     results
@@ -585,7 +586,10 @@ async function findExistingRewriteRecords(
 
       const title = String(record.fields["二创标题"] || record.fields["标题"] || "").trim();
       const body = String(record.fields["二创正文"] || "").trim();
-      const existingKey = `${sourceRecordId}|${title}|${body}`;
+      const existingRewriterName = String(record.fields["二创人"] || "").trim();
+      if (existingRewriterName !== rewriterName) continue;
+
+      const existingKey = `${existingRewriterName}|${sourceRecordId}|${title}|${body}`;
       if (!existingRecords.has(existingKey)) {
         existingRecords.set(existingKey, {
           sourceRecordId,
@@ -601,11 +605,11 @@ async function findExistingRewriteRecords(
   return existingRecords;
 }
 
-function buildExistingRewriteKey(result: RewriteResult) {
+function buildExistingRewriteKey(result: RewriteResult, rewriterName: string) {
   const sourceRecordId = result.originalNote.recordId || result.recordId;
   const title = (result.rewrittenTitle || result.originalNote.originalTitle || "").trim();
   const body = (result.rewrittenBody || "").trim();
-  return `${sourceRecordId}|${title}|${body}`;
+  return `${rewriterName}|${sourceRecordId}|${title}|${body}`;
 }
 
 function buildRewriteTableFields(params: {
@@ -768,7 +772,11 @@ export async function POST(req: NextRequest) {
     const promptTemplate = extractReplacePromptTemplate || undefined;
     const promptMode = normalizePromptMode(extractReplacePromptMode);
     const shouldExtractReplaceInfo = extractReplaceEnabled !== false;
-    const existingRewriteRecords = await findExistingRewriteRecords(tableId, persistResults);
+    const existingRewriteRecords = await findExistingRewriteRecords(
+      tableId,
+      persistResults,
+      rewriterName
+    );
     const claimedRewriteKeys = new Set<string>();
     const originalCoverAttachmentTasks = new Map<string, Promise<UploadedAttachment | null>>();
 
@@ -840,7 +848,7 @@ export async function POST(req: NextRequest) {
     }
 
     async function persistSingleResult(result: RewriteResult): Promise<PersistedResultItem> {
-      const rewriteKey = buildExistingRewriteKey(result);
+      const rewriteKey = buildExistingRewriteKey(result, rewriterName);
       const existingRecord = existingRewriteRecords.get(rewriteKey);
       if (existingRecord) {
         console.info(

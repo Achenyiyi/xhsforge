@@ -1488,6 +1488,58 @@ export default function RewriteModule() {
     });
   }, [rewriteResults, startRewrite]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const missingCoverResults = rewriteResults.filter(
+      (item) =>
+        item.status === "done" &&
+        !item.rewrittenCover &&
+        Boolean(item.rewrittenCoverText?.trim()) &&
+        Boolean(item.coverBaseImage)
+    );
+
+    if (missingCoverResults.length === 0) return;
+
+    void (async () => {
+      for (const result of missingCoverResults) {
+        if (cancelled) return;
+        const current = useAppStore.getState().rewriteResults.find((item) => item.id === result.id);
+        if (
+          !current ||
+          current.rewrittenCover ||
+          !current.rewrittenCoverText?.trim() ||
+          !current.coverBaseImage
+        ) {
+          continue;
+        }
+
+        try {
+          const coverPayload = await buildRenderedCoverPayload({
+            result: current,
+            coverText: current.rewrittenCoverText,
+            customTemplates,
+          });
+          if (cancelled) return;
+          updateRewriteResult(current.id, {
+            ...coverPayload,
+            editBaseline: current.editBaseline
+              ? {
+                  ...current.editBaseline,
+                  rewrittenCover: current.editBaseline.rewrittenCover || coverPayload.rewrittenCover,
+                }
+              : current.editBaseline,
+          });
+        } catch (error) {
+          console.error("恢复二创封面失败:", error);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [customTemplates, rewriteResults, updateRewriteResult]);
+
   async function handleSaveToDraft() {
     const selected = rewriteResults
       .filter((result) => selectedRewriteIds.has(result.id) && result.status === "done")
