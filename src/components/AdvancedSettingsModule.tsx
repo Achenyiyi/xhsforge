@@ -9,6 +9,7 @@ import {
   DEFAULT_TITLE_REWRITE_PROMPT,
   DEFAULT_COVER_REWRITE_PROMPT,
   DEFAULT_EXTRACT_REPLACE_PROMPT,
+  type PromptConfig,
 } from "@/store/promptsSettingsStore";
 import { saveWorkspaceSnapshot } from "@/lib/workspaceClient";
 
@@ -172,7 +173,7 @@ export default function AdvancedSettingsModule() {
     ]
   );
 
-  const [drafts, setDrafts] = useState<Record<string, string> | null>(null);
+  const [drafts, setDrafts] = useState<PromptConfig | null>(null);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -180,21 +181,22 @@ export default function AdvancedSettingsModule() {
   const effectiveDrafts = drafts ?? persistedPrompts;
   const hasChanges = SECTIONS.some((section) => effectiveDrafts[section.key] !== store[section.key]);
 
-  function handleChange(key: string, value: string) {
+  function handleChange(key: PromptSection["key"], value: string) {
     setDrafts((current) => ({ ...(current ?? persistedPrompts), [key]: value }));
     setSaved(false);
     setError("");
   }
 
-  function buildDefaultPrompts() {
-    const reset: Record<string, string> = {};
-    SECTIONS.forEach((section) => {
-      reset[section.key] = section.defaultValue;
-    });
-    return reset;
+  function buildDefaultPrompts(): PromptConfig {
+    return {
+      bodyRewritePrompt: DEFAULT_BODY_REWRITE_PROMPT,
+      titleRewritePrompt: DEFAULT_TITLE_REWRITE_PROMPT,
+      coverRewritePrompt: DEFAULT_COVER_REWRITE_PROMPT,
+      extractReplacePrompt: DEFAULT_EXTRACT_REPLACE_PROMPT,
+    };
   }
 
-  async function handleSavePrompts(nextPrompts: Record<string, string>) {
+  async function handleSavePrompts(nextPrompts: PromptConfig) {
     setSaving(true);
     setError("");
 
@@ -209,10 +211,7 @@ export default function AdvancedSettingsModule() {
         version: 0,
       });
 
-      store.setBodyRewritePrompt(nextPrompts.bodyRewritePrompt);
-      store.setTitleRewritePrompt(nextPrompts.titleRewritePrompt);
-      store.setCoverRewritePrompt(nextPrompts.coverRewritePrompt);
-      store.setExtractReplacePrompt(nextPrompts.extractReplacePrompt);
+      store.setAllPrompts(nextPrompts);
       setDrafts(null);
       setSaved(true);
       window.setTimeout(() => setSaved(false), 2500);
@@ -227,7 +226,7 @@ export default function AdvancedSettingsModule() {
     setDrafts((current) => ({
       ...(current ?? persistedPrompts),
       [section.key]: section.defaultValue,
-    }));
+    }) as PromptConfig);
     setSaved(false);
     setError("");
   }

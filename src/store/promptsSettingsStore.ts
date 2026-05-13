@@ -175,6 +175,7 @@ interface PromptsSettingsState extends PromptConfig {
   setTitleRewritePrompt: (v: string) => void;
   setCoverRewritePrompt: (v: string) => void;
   setExtractReplacePrompt: (v: string) => void;
+  setAllPrompts: (config: PromptConfig) => void;
   resetAllPrompts: () => void;
 
   getBodyPromptMode: () => PromptExecutionMode;
@@ -209,6 +210,13 @@ export const usePromptsSettingsStore = create<PromptsSettingsState>()(
       setTitleRewritePrompt: (v) => set({ titleRewritePrompt: v }),
       setCoverRewritePrompt: (v) => set({ coverRewritePrompt: v }),
       setExtractReplacePrompt: (v) => set({ extractReplacePrompt: v }),
+      setAllPrompts: (config) =>
+        set({
+          bodyRewritePrompt: config.bodyRewritePrompt,
+          titleRewritePrompt: config.titleRewritePrompt,
+          coverRewritePrompt: config.coverRewritePrompt,
+          extractReplacePrompt: config.extractReplacePrompt,
+        }),
 
       resetAllPrompts: () =>
         set({
