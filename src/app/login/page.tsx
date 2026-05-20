@@ -8,6 +8,23 @@ import AuthFormShell from "@/components/AuthFormShell";
 import { useAuth, type AuthUser } from "@/components/AuthProvider";
 import { getClientDeviceInfo } from "@/lib/clientDeviceInfo";
 
+function getSafeLoginNext(rawNext: string | null) {
+  if (!rawNext) return "/";
+  if (!rawNext.startsWith("/") || rawNext.startsWith("//")) return "/";
+  if (rawNext.length > 512) return "/";
+
+  try {
+    const parsed = new URL(rawNext, window.location.origin);
+    if (parsed.origin !== window.location.origin) return "/";
+    if (["/login", "/register", "/forgot-password", "/reset-password"].includes(parsed.pathname)) {
+      return "/";
+    }
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return "/";
+  }
+}
+
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -17,7 +34,7 @@ function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const next = searchParams.get("next") || "/";
+  const next = getSafeLoginNext(searchParams.get("next"));
   const expired = searchParams.get("expired") === "1";
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
