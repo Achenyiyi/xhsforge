@@ -117,6 +117,15 @@ local-helper/release/
       "allowedParams": {
         "taskId": "^[A-Za-z0-9_-]{0,80}$"
       }
+    },
+    {
+      "id": "open-recycle-bin",
+      "label": "Open Windows Recycle Bin",
+      "command": "explorer.exe shell:RecycleBinFolder",
+      "mode": "detached",
+      "timeoutMs": 5000,
+      "allowedParams": {},
+      "requiresConfirmation": false
     }
   ]
 }
@@ -149,6 +158,20 @@ local-helper/release/
   "mode": "detached",
   "requiresConfirmation": true,
   "allowedParams": {}
+}
+```
+
+打开 Windows 回收站：
+
+```json
+{
+  "id": "open-recycle-bin",
+  "label": "Open Windows Recycle Bin",
+  "command": "explorer.exe shell:RecycleBinFolder",
+  "mode": "detached",
+  "timeoutMs": 5000,
+  "allowedParams": {},
+  "requiresConfirmation": false
 }
 ```
 
@@ -245,9 +268,10 @@ local-helper/examples/test-page.html
 Health
 Pair
 Run demo-echo
+Open recycle bin
 ```
 
-`Pair` 会触发本地助手确认弹窗，允许后页面会保存 token。`Run demo-echo` 会通过 `cmd.exe` 执行默认配置里的 `demo-echo` 命令。
+`Pair` 会触发本地助手确认弹窗，允许后页面会保存 token。`Run demo-echo` 会通过 `cmd.exe` 执行默认配置里的 `demo-echo` 命令。`Open recycle bin` 会通过 `cmd.exe` 调用 `explorer.exe shell:RecycleBinFolder`。
 
 ## 安全边界
 

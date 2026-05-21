@@ -44,6 +44,16 @@ export function getDefaultConfig(): HelperConfig {
         timeoutMs: 5000,
         allowedParams: {},
         requiresConfirmation: true
+      },
+      {
+        id: "open-recycle-bin",
+        label: "Open Windows Recycle Bin",
+        description: "Opens the current user's Windows Recycle Bin through cmd.exe.",
+        command: "explorer.exe shell:RecycleBinFolder",
+        mode: "detached",
+        timeoutMs: 5000,
+        allowedParams: {},
+        requiresConfirmation: false
       }
     ]
   };
@@ -132,4 +142,3 @@ function readJson<T>(filePath: string): T {
 function writeJson<T>(filePath: string, value: T) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
-

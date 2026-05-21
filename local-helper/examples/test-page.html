@@ -55,12 +55,13 @@
 <body>
   <main>
     <h1>XHS Local Helper Test</h1>
-    <p>先运行本地助手，再用本页测试 health、pair 和 demo-echo。线上接入前可以用这个页面验证链路。</p>
+    <p>先运行本地助手，再用本页测试 health、pair、demo-echo 和打开回收站。线上接入前可以用这个页面验证链路。</p>
     <section class="panel">
       <button id="health">Health</button>
       <button id="wake">Wake xhs-agent://</button>
       <button id="pair">Pair</button>
       <button id="run">Run demo-echo</button>
+      <button id="recycle">Open recycle bin</button>
       <pre id="log"></pre>
     </section>
   </main>
@@ -118,7 +119,21 @@
         })
       });
     });
+
+    document.querySelector("#recycle").addEventListener("click", async () => {
+      const token = localStorage.getItem("xhsAgentToken") || "";
+      await request("/commands/run", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-XHS-Agent-Token": token
+        },
+        body: JSON.stringify({
+          commandId: "open-recycle-bin",
+          params: {}
+        })
+      });
+    });
   </script>
 </body>
 </html>
-
