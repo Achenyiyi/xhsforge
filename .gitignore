@@ -18,6 +18,8 @@
 /.next/
 /services/jimeng-api/dist
 /services/jimeng-api/logs
+/local-helper/dist
+/local-helper/release
 /out/
 
 # production

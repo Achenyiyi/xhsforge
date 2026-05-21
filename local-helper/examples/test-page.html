@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>XHS Local Helper Test</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+      background: #f6f7fb;
+      color: #172033;
+    }
+    main {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 40px 24px;
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: 24px;
+    }
+    p {
+      color: #5d667a;
+      line-height: 1.7;
+    }
+    .panel {
+      margin-top: 20px;
+      padding: 18px;
+      border: 1px solid #e3e7ef;
+      border-radius: 10px;
+      background: #fff;
+    }
+    button {
+      border: 0;
+      border-radius: 8px;
+      background: #ef233c;
+      color: #fff;
+      padding: 10px 14px;
+      cursor: pointer;
+      font-size: 14px;
+      margin-right: 8px;
+    }
+    pre {
+      white-space: pre-wrap;
+      background: #101828;
+      color: #d5e7ff;
+      border-radius: 8px;
+      padding: 14px;
+      min-height: 160px;
+      overflow: auto;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>XHS Local Helper Test</h1>
+    <p>先运行本地助手，再用本页测试 health、pair 和 demo-echo。线上接入前可以用这个页面验证链路。</p>
+    <section class="panel">
+      <button id="health">Health</button>
+      <button id="wake">Wake xhs-agent://</button>
+      <button id="pair">Pair</button>
+      <button id="run">Run demo-echo</button>
+      <pre id="log"></pre>
+    </section>
+  </main>
+  <script>
+    const baseUrl = "http://127.0.0.1:17890";
+    const logEl = document.querySelector("#log");
+
+    function log(value) {
+      logEl.textContent = `${new Date().toLocaleTimeString()} ${value}\n\n${logEl.textContent}`;
+    }
+
+    async function request(path, options = {}) {
+      const res = await fetch(`${baseUrl}${path}`, options);
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = text;
+      }
+      log(`${options.method || "GET"} ${path}\nHTTP ${res.status}\n${JSON.stringify(data, null, 2)}`);
+      return data;
+    }
+
+    document.querySelector("#health").addEventListener("click", () => {
+      request("/health").catch((error) => log(error.message));
+    });
+
+    document.querySelector("#wake").addEventListener("click", () => {
+      window.location.href = "xhs-agent://start";
+      log("Sent xhs-agent://start");
+    });
+
+    document.querySelector("#pair").addEventListener("click", async () => {
+      const data = await request("/pair", { method: "POST" });
+      if (data.token) {
+        localStorage.setItem("xhsAgentToken", data.token);
+        log("Token saved to localStorage.");
+      }
+    });
+
+    document.querySelector("#run").addEventListener("click", async () => {
+      const token = localStorage.getItem("xhsAgentToken") || "";
+      await request("/commands/run", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-XHS-Agent-Token": token
+        },
+        body: JSON.stringify({
+          commandId: "demo-echo",
+          params: {
+            taskId: "test_001"
+          }
+        })
+      });
+    });
+  </script>
+</body>
+</html>
+
