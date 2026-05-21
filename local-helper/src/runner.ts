@@ -124,13 +124,6 @@ function runCapturedCommand(
       }
     );
 
-    child.stdout?.on("data", (chunk) => {
-      stdout = truncateOutput(stdout + String(chunk), maxOutputBytes);
-    });
-    child.stderr?.on("data", (chunk) => {
-      stderr = truncateOutput(stderr + String(chunk), maxOutputBytes);
-    });
-
     const timer = setTimeout(() => {
       if (settled) return;
       timedOut = true;
