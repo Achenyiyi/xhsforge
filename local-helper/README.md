@@ -121,8 +121,8 @@ local-helper/release/
     {
       "id": "open-recycle-bin",
       "label": "Open Windows Recycle Bin",
-      "command": "explorer.exe shell:RecycleBinFolder",
-      "mode": "detached",
+      "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"& { Start-Process explorer.exe 'shell:RecycleBinFolder' }\"",
+      "mode": "capture",
       "timeoutMs": 5000,
       "allowedParams": {},
       "requiresConfirmation": false
@@ -167,8 +167,8 @@ local-helper/release/
 {
   "id": "open-recycle-bin",
   "label": "Open Windows Recycle Bin",
-  "command": "explorer.exe shell:RecycleBinFolder",
-  "mode": "detached",
+  "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"& { Start-Process explorer.exe 'shell:RecycleBinFolder' }\"",
+  "mode": "capture",
   "timeoutMs": 5000,
   "allowedParams": {},
   "requiresConfirmation": false
@@ -271,7 +271,7 @@ Run demo-echo
 Open recycle bin
 ```
 
-`Pair` 会触发本地助手确认弹窗，允许后页面会保存 token。`Run demo-echo` 会通过 `cmd.exe` 执行默认配置里的 `demo-echo` 命令。`Open recycle bin` 会通过 `cmd.exe` 调用 `explorer.exe shell:RecycleBinFolder`。
+`Pair` 会触发本地助手确认弹窗，允许后页面会保存 token。`Run demo-echo` 会通过 `cmd.exe` 执行默认配置里的 `demo-echo` 命令。`Open recycle bin` 会通过 `cmd.exe` 启动 PowerShell，再调用 Explorer 打开 `shell:RecycleBinFolder`。
 
 ## 安全边界
 

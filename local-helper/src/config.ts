@@ -49,8 +49,9 @@ export function getDefaultConfig(): HelperConfig {
         id: "open-recycle-bin",
         label: "Open Windows Recycle Bin",
         description: "Opens the current user's Windows Recycle Bin through cmd.exe.",
-        command: "explorer.exe shell:RecycleBinFolder",
-        mode: "detached",
+        command:
+          'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& { Start-Process explorer.exe \'shell:RecycleBinFolder\' }"',
+        mode: "capture",
         timeoutMs: 5000,
         allowedParams: {},
         requiresConfirmation: false
