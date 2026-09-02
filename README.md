@@ -1,6 +1,6 @@
 <div align="center">
 
-# Xiaohongshu Agent
+# XHSForge
 
 **AI 驱动的小红书内容运营工作台**
 
