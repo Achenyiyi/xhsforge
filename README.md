@@ -1,6 +1,6 @@
 <div align="center">
 
-# 📕 Xiaohongshu Agent
+# Xiaohongshu Agent
 
 **AI 驱动的小红书内容运营工作台**
 
@@ -17,16 +17,16 @@ _热点素材搜集 · 通义千问文案改写 · 即梦智能配图 · 飞书�
 
 ---
 
-## ✨ 核心特性
+## 核心特性
 
-- 🔍 **素材搜集** — 按关键词批量搜索小红书笔记素材，快速洞察同赛道爆款内容
-- ✍️ **AI 文案改写** — 基于通义千问（文本 + 视觉多模态），一键将素材改写为原创文案，支持批量并发与自动重试
-- 🎨 **智能配图 / 生视频** — 内置即梦（Jimeng）API 本地代理服务，为笔记生成配图与视频
-- 🗂️ **飞书协同发布** — 与飞书多维表格深度集成：素材导入、发布账号管理、一键存草稿、收藏状态同步
-- 👥 **完整账号体系** — 邮箱验证码注册 / 登录、会话管理、密码找回，开箱即用
-- 📦 **多种部署形态** — Docker Compose 一键拉起，或 Windows 便携包双击即用
+- **素材搜集** — 按关键词批量搜索小红书笔记素材，快速洞察同赛道爆款内容
+- **AI 文案改写** — 基于通义千问（文本 + 视觉多模态），一键将素材改写为原创文案，支持批量并发与自动重试
+- **智能配图 / 生视频** — 内置即梦（Jimeng）API 本地代理服务，为笔记生成配图与视频
+- **飞书协同发布** — 与飞书多维表格深度集成：素材导入、发布账号管理、一键存草稿、收藏状态同步
+- **完整账号体系** — 邮箱验证码注册 / 登录、会话管理、密码找回，开箱即用
+- **多种部署形态** — Docker Compose 一键拉起，或 Windows 便携包双击即用
 
-## 🖥️ 界面预览
+## 界面预览
 
 <div align="center">
 
@@ -37,7 +37,7 @@ _自动演示四大核心模块（示例数据已脱敏）_
 </div>
 
 <details>
-<summary><b>📷 查看高清截图</b></summary>
+<summary><b>查看高清截图</b></summary>
 
 <br>
 
@@ -51,19 +51,19 @@ _自动演示四大核心模块（示例数据已脱敏）_
 
 </details>
 
-## 🔄 工作流
+## 工作流
 
 ```mermaid
 flowchart LR
-    A[🔍 关键词搜索素材] --> B[✍️ 通义千问 AI 改写]
-    B --> C{🎨 需要配图?}
+    A[关键词搜索素材] --> B[通义千问 AI 改写]
+    B --> C{需要配图?}
     C -->|是| D[即梦生成图片 / 视频]
     C -->|否| E
-    D --> E[🗂️ 一键存入飞书多维表格]
-    E --> F[🚀 分发到发布账号]
+    D --> E[一键存入飞书多维表格]
+    E --> F[分发到发布账号]
 ```
 
-## 🧩 功能模块
+## 功能模块
 
 | 模块 | 说明 | 关键技术 |
 |------|------|----------|
@@ -74,7 +74,7 @@ flowchart LR
 | 账号中心 | 邮箱验证码登录、会话与账户管理 | Next.js Route Handlers · SMTP |
 | 数据持久化 | 用户 / 会话 / 改写结果存储 | Prisma ORM · PostgreSQL 16 |
 
-## 🚀 快速开始
+## 快速开始
 
 ### 方式一：Docker Compose（推荐）
 
@@ -115,7 +115,7 @@ npm run dev                  # http://localhost:3000
 | 停止 | `stop-company.cmd` |
 | 清理浏览器本地缓存 | `clear-local-data.cmd` |
 
-## 🔧 环境变量
+## 环境变量
 
 完整模板见 [.env.example](.env.example)，按模块分组：
 
@@ -131,7 +131,7 @@ npm run dev                  # http://localhost:3000
 
 所有请求均可通过 `XHS_REQUEST_TIMEOUT_MS`、`SAVE_DRAFT_CONCURRENCY` 等参数调节超时、重试与并发。
 
-## 🏗️ 技术栈
+## 技术栈
 
 **前端** Next.js 16 (App Router) · React 19 · Tailwind CSS 4 · shadcn/ui · Zustand · SWR
 **后端** Next.js Route Handlers · Prisma ORM · PostgreSQL 16 · better-auth
@@ -139,7 +139,7 @@ npm run dev                  # http://localhost:3000
 **集成** 飞书开放平台（多维表格）· SMTP 邮件
 **部署** Docker Compose · Windows 便携脚本
 
-## 📁 项目结构
+## 项目结构
 
 ```text
 xiaohongshuagent/
@@ -156,7 +156,7 @@ xiaohongshuagent/
 └── start-company.*       # Windows 一键启动脚本
 ```
 
-## ❓ FAQ
+## FAQ
 
 **Q: 启动后无法访问 3000 端口？**
 Docker 模式默认绑定 `127.0.0.1`，如需局域网访问请修改 `docker-compose.yml` 中的端口映射。
@@ -170,6 +170,6 @@ Docker 模式默认绑定 `127.0.0.1`，如需局域网访问请修改 `docker-c
 **Q: 即梦生成超时？**
 即梦为本地代理服务，需单独配置 `JIMENG_SESSION_ID`，超时可调 `JIMENG_REQUEST_TIMEOUT_MS`（默认 90s）。
 
-## ⚠️ 免责声明
+## 免责声明
 
 本项目仅供学习与内部效率工具使用，请遵守目标平台的服务条款，理性控制请求频率，勿用于任何违规用途。
