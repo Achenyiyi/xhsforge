@@ -26,6 +26,31 @@ _热点素材搜集 · 通义千问文案改写 · 即梦智能配图 · 飞书�
 - 👥 **完整账号体系** — 邮箱验证码注册 / 登录、会话管理、密码找回，开箱即用
 - 📦 **多种部署形态** — Docker Compose 一键拉起，或 Windows 便携包双击即用
 
+## 🖥️ 界面预览
+
+<div align="center">
+
+<img src="assets/demo.gif" alt="功能演示：采集 → 爆款库 → 二创 → 高级设置" width="800">
+
+_自动演示四大核心模块（示例数据已脱敏）_
+
+</div>
+
+<details>
+<summary><b>📷 查看高清截图</b></summary>
+
+<br>
+
+| 采集模块 | 爆款库 |
+|---|---|
+| ![采集模块](assets/screenshots/01-collect.png) | ![爆款库](assets/screenshots/02-vault.png) |
+
+| **二创模块** | **高级设置** |
+|---|---|
+| ![二创模块](assets/screenshots/03-rewrite.png) | ![高级设置](assets/screenshots/04-settings.png) |
+
+</details>
+
 ## 🔄 工作流
 
 ```mermaid
