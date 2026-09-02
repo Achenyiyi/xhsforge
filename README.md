@@ -80,8 +80,8 @@ flowchart LR
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/Achenyiyi/xiaohongshuagent.git
-cd xiaohongshuagent
+git clone https://github.com/Achenyiyi/xhsforge.git
+cd xhsforge
 
 # 2. 配置环境变量
 cp .env.example .env
@@ -142,7 +142,7 @@ npm run dev                  # http://localhost:3000
 ## 项目结构
 
 ```text
-xiaohongshuagent/
+xhsforge/
 ├── src/
 │   ├── app/              # 页面与 API 路由（auth / xhs / ai / jimeng / feishu / workspace）
 │   ├── components/       # UI 组件
